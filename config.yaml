@@ -1,0 +1,39 @@
+# Media Digest Configuration
+# Non-sensitive configuration (committed to Git)
+
+ingest:
+  podcasts_opml: data/podcasts.opml
+  feeds: []
+  email:
+    since: ${START_DATE}
+    labels: ["newsletters", "INBOX"]
+
+processing:
+  asr:
+    model: medium  # whisper model: tiny, base, small, medium, large
+    device: cpu
+    compute_type: int8  # int8 or float16
+
+  tagging:
+    max_tags_per_doc: 5
+    allow_new_tags: false
+
+llm:
+  provider: anthropic
+  default_model: claude-sonnet-4-5-20250929
+  models:
+    cleaning: claude-sonnet-4-5-20250929
+    summarization: claude-sonnet-4-5-20250929
+    rating: claude-sonnet-4-5-20250929
+    tagging: claude-sonnet-4-5-20250929  # Task 8.0
+
+export:
+  output_path: 5-Resources/0-Media digester
+  daily_time: "05:00"  # UTC
+  weekly_day: "FRI"
+  weekly_time: "06:00"  # UTC
+
+retry:
+  max_retries_audio: 3
+  max_retries_newsletters: 2
+  backoff_base: 60  # seconds

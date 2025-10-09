@@ -1,0 +1,27 @@
+# Weekly Digest - {{ week_start }} to {{ week_end }}
+
+## Top Content ({{ items|length }} items)
+
+{% for item in items -%}
+### {{ item.title }} ({{ item.rating_llm }}/5)
+
+**Top Takeaways:**
+{% for takeaway in item.takeaways -%}
+- {{ takeaway.text }} — {{ takeaway.reference }}
+{% endfor %}
+
+[View full note]({{ item.note_link }})
+
+---
+
+{% endfor %}
+
+{% if failures -%}
+## ⚠️ Failures This Week ({{ failures|length }})
+
+{% for failure in failures -%}
+- **{{ failure.title }}** ({{ failure.type }})
+  - Error: {{ failure.error_reason }}
+
+{% endfor %}
+{% endif %}

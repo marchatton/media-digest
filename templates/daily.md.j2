@@ -1,0 +1,34 @@
+# Daily Digest - {{ date }}
+
+## Processed Items ({{ items|length }})
+
+{% for item in items -%}
+### {{ item.title }}
+- **Type:** {{ item.type }}
+- **Rating:** {{ item.rating_llm }}/5
+- **Summary:** {{ item.summary }}
+- [View note]({{ item.note_link }})
+
+{% endfor %}
+
+{% if failures -%}
+## ⚠️ Failures ({{ failures|length }})
+
+{% for failure in failures -%}
+- **{{ failure.title }}** ({{ failure.type }})
+  - Error: {{ failure.error_reason }}
+
+{% endfor %}
+{% endif %}
+
+## Top Themes
+
+{% for theme in themes -%}
+- {{ theme }}
+{% endfor %}
+
+## Actionables
+
+{% for action in actionables -%}
+- {{ action }}
+{% endfor %}

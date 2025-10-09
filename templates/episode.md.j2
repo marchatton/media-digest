@@ -1,0 +1,50 @@
+---
+title: {{ title }}
+date: {{ date }}
+author:
+{%- for author in authors %}
+  - {{ author }}
+{%- endfor %}
+guests:
+{%- for guest in guests %}
+  - {{ guest }}
+{%- endfor %}
+link: {{ link }}
+rating:
+type: {{ type }}
+version: {{ version }}
+rating_llm: {{ rating_llm }}
+---
+
+# {{ title }}
+
+> **Summary:** {{ summary }}
+
+## Key topics
+{% for topic in key_topics -%}
+- {{ topic }}
+{% endfor %}
+
+{% if companies -%}
+## Companies
+{% for company in companies -%}
+- **{{ company.name }}** — {{ company.context }}
+{% endfor %}
+{% endif %}
+
+{% if tools -%}
+## Tools
+{% for tool in tools -%}
+- **{{ tool.name }}** — {{ tool.context }}
+{% endfor %}
+{% endif %}
+
+## Noteworthy quotes
+{% for quote in quotes -%}
+> {{ quote.text }}
+— {{ quote.timestamp_link }}
+
+{% endfor %}
+
+## Original content
+[View original]({{ link }})
