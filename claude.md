@@ -294,6 +294,47 @@ def format_timestamp_link(quote: Quote, episode: Episode) -> str:
 2. **Ask clarifying questions** - Especially about cost/performance tradeoffs
 3. **Suggest simpler alternatives** - If you see complexity creep
 4. **Update this file** - Add learnings as you discover them
+5. **Create PRs frequently** - Small, focused PRs are better than large ones
+
+### Pull Request Guidelines
+**CREATE SMALL, FREQUENT PRS.** Don't wait until a feature is "done" to create a PR. Create PRs at logical checkpoints:
+
+✅ **Good PR cadence:**
+- Add database schema → PR
+- Implement RSS feed parser → PR
+- Add LLM summarization → PR
+- Wire up CLI commands → PR
+
+❌ **Bad PR cadence:**
+- Implement entire podcast processing pipeline → One giant PR
+
+**PR Size Guidelines:**
+- Target: 100-300 lines changed per PR
+- Maximum: 500 lines (beyond this, split into multiple PRs)
+- Each PR should have a single, clear purpose
+- Tests should be included in the same PR as the code they test
+
+**When to Create a PR:**
+1. After completing a discrete unit of work (one module, one feature)
+2. Before starting work that depends on review feedback
+3. When you've made progress worth preserving (even if incomplete)
+4. End of each work session if you have working code
+
+**PR Description Template:**
+```markdown
+## What
+Brief description of what this PR does (1-2 sentences)
+
+## Why
+Why this change is needed
+
+## Testing
+- [ ] Unit tests added/updated
+- [ ] Manually tested with [specific scenario]
+
+## Notes
+Any context, tradeoffs, or follow-up work needed
+```
 
 ### Anti-Patterns to Avoid
 ```python
