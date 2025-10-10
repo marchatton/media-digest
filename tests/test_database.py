@@ -8,8 +8,13 @@ from src.db.queries import (
     upsert_episode,
     upsert_newsletter,
     update_episode_status,
+    update_newsletter_status,
     get_pending_episodes,
     get_pending_newsletters,
+    get_completed_episodes_needing_summary,
+    get_completed_newsletters_needing_summary,
+    save_transcript,
+    save_summary,
 )
 
 
@@ -136,3 +141,86 @@ def test_idempotency(temp_db):
     # Should only have one record
     count = conn.execute("SELECT COUNT(*) FROM episodes WHERE guid = ?", ("ep-id",)).fetchone()[0]
     assert count == 1
+
+
+def test_get_completed_episodes_needing_summary(temp_db):
+    """Test retrieving completed episodes that need summarization."""
+    conn = temp_db
+
+    # Insert episodes
+    upsert_episode(
+        conn, "ep-1", "https://feed.com", "Episode 1", "2025-10-09", audio_url="https://audio.mp3"
+    )
+    upsert_episode(
+        conn, "ep-2", "https://feed.com", "Episode 2", "2025-10-10", audio_url="https://audio.mp3"
+    )
+    upsert_episode(
+        conn, "ep-3", "https://feed.com", "Episode 3", "2025-10-11", audio_url="https://audio.mp3"
+    )
+
+    # Mark episodes as completed
+    update_episode_status(conn, "ep-1", "completed")
+    update_episode_status(conn, "ep-2", "completed")
+    update_episode_status(conn, "ep-3", "pending")  # This one stays pending
+
+    # Add transcripts for completed episodes
+    save_transcript(conn, "ep-1", "Transcript 1", "/path/to/transcript1.json")
+    save_transcript(conn, "ep-2", "Transcript 2", "/path/to/transcript2.json")
+
+    # Add summary for ep-1
+    save_summary(
+        conn,
+        item_id="ep-1",
+        item_type="podcast",
+        summary="Summary 1",
+        key_topics='["topic1"]',
+        companies="[]",
+        tools="[]",
+        quotes="[]",
+        raw_rating=4,
+        final_rating=4,
+    )
+
+    # Get completed episodes needing summary
+    # Should return ep-2 only (completed + has transcript + no summary)
+    episodes = get_completed_episodes_needing_summary(conn)
+    assert len(episodes) == 1
+    assert episodes[0]["guid"] == "ep-2"
+    assert episodes[0]["transcript_text"] == "Transcript 2"
+
+
+def test_get_completed_newsletters_needing_summary(temp_db):
+    """Test retrieving completed newsletters that need summarization."""
+    conn = temp_db
+
+    # Insert newsletters
+    upsert_newsletter(
+        conn, "msg-1", "Newsletter 1", "sender@example.com", "2025-10-09", body_text="Content 1"
+    )
+    upsert_newsletter(
+        conn, "msg-2", "Newsletter 2", "sender@example.com", "2025-10-10", body_text="Content 2"
+    )
+
+    # Mark as completed
+    update_newsletter_status(conn, "msg-1", "completed")
+    update_newsletter_status(conn, "msg-2", "completed")
+
+    # Add summary for msg-1
+    save_summary(
+        conn,
+        item_id="msg-1",
+        item_type="newsletter",
+        summary="Summary 1",
+        key_topics='["topic1"]',
+        companies="[]",
+        tools="[]",
+        quotes="[]",
+        raw_rating=3,
+        final_rating=3,
+    )
+
+    # Get completed newsletters needing summary
+    # Should return msg-2 only (completed + no summary)
+    newsletters = get_completed_newsletters_needing_summary(conn)
+    assert len(newsletters) == 1
+    assert newsletters[0]["message_id"] == "msg-2"

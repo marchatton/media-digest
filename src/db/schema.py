@@ -35,8 +35,9 @@ CREATE TABLE IF NOT EXISTS newsletters (
 """
 
 CREATE_TRANSCRIPTS_TABLE = """
+CREATE SEQUENCE IF NOT EXISTS transcripts_seq START 1;
 CREATE TABLE IF NOT EXISTS transcripts (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY DEFAULT nextval('transcripts_seq'),
     episode_guid TEXT UNIQUE NOT NULL,
     transcript_text TEXT NOT NULL,
     transcript_path TEXT NOT NULL,
@@ -46,8 +47,9 @@ CREATE TABLE IF NOT EXISTS transcripts (
 """
 
 CREATE_SUMMARIES_TABLE = """
+CREATE SEQUENCE IF NOT EXISTS summaries_seq START 1;
 CREATE TABLE IF NOT EXISTS summaries (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY DEFAULT nextval('summaries_seq'),
     item_id TEXT UNIQUE NOT NULL,
     item_type TEXT NOT NULL,
     summary TEXT NOT NULL,
@@ -57,8 +59,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     quotes TEXT,
     raw_rating INTEGER,
     final_rating INTEGER,
-    created_at TIMESTAMP DEFAULT (now()),
-    FOREIGN KEY (item_id) REFERENCES episodes(guid)
+    created_at TIMESTAMP DEFAULT (now())
 )
 """
 

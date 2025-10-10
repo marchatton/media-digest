@@ -192,6 +192,57 @@ def save_transcript(conn, episode_guid: str, transcript_text: str, transcript_pa
     logger.debug(f"Saved transcript for episode {episode_guid}")
 
 
+def get_completed_episodes_needing_summary(conn, limit: int | None = None) -> list[dict[str, Any]]:
+    """Get completed episodes that don't have summaries yet.
+
+    Args:
+        conn: Database connection
+        limit: Max number of episodes to return
+
+    Returns:
+        List of episode records with transcript info
+    """
+    query = """
+        SELECT e.*, t.transcript_text, t.transcript_path
+        FROM episodes e
+        INNER JOIN transcripts t ON e.guid = t.episode_guid
+        LEFT JOIN summaries s ON e.guid = s.item_id AND s.item_type = 'podcast'
+        WHERE e.status = 'completed' AND s.item_id IS NULL
+        ORDER BY e.publish_date DESC
+    """
+    if limit:
+        query += f" LIMIT {limit}"
+
+    result = conn.execute(query).fetchall()
+    columns = [desc[0] for desc in conn.description]
+    return [dict(zip(columns, row)) for row in result]
+
+
+def get_completed_newsletters_needing_summary(conn, limit: int | None = None) -> list[dict[str, Any]]:
+    """Get completed newsletters that don't have summaries yet.
+
+    Args:
+        conn: Database connection
+        limit: Max number of newsletters to return
+
+    Returns:
+        List of newsletter records
+    """
+    query = """
+        SELECT n.*
+        FROM newsletters n
+        LEFT JOIN summaries s ON n.message_id = s.item_id AND s.item_type = 'newsletter'
+        WHERE n.status = 'completed' AND s.item_id IS NULL
+        ORDER BY n.date DESC
+    """
+    if limit:
+        query += f" LIMIT {limit}"
+
+    result = conn.execute(query).fetchall()
+    columns = [desc[0] for desc in conn.description]
+    return [dict(zip(columns, row)) for row in result]
+
+
 def save_summary(
     conn,
     item_id: str,
