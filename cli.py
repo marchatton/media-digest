@@ -16,6 +16,8 @@ from src.db.queries import (
     update_newsletter_status,
     get_pending_episodes,
     get_pending_newsletters,
+    get_completed_episodes_needing_summary,
+    get_completed_newsletters_needing_summary,
     save_transcript,
     save_summary,
 )
@@ -207,64 +209,114 @@ def cmd_summarize(args):
 
     conn = get_connection()
 
-    # Get transcribed episodes without summaries
-    episodes = conn.execute("""
-        SELECT guid, title, author, publish_date
-        FROM episodes
-        WHERE status = 'transcribed'
-        ORDER BY publish_date DESC
-    """).fetchall()
+    # Get episodes needing summarization
+    episodes = get_completed_episodes_needing_summary(conn, limit=args.limit)
+    logger.info(f"Found {len(episodes)} episodes needing summarization")
 
-    logger.info(f"Found {len(episodes)} episodes to summarize")
+    for episode in episodes:
+        guid = episode["guid"]
+        title = episode["title"]
+        author = episode["author"]
+        publish_date = episode["publish_date"]
+        transcript_text = episode["transcript_text"]
 
-    for guid, title, author, publish_date in episodes:
         try:
-            logger.info(f"Summarizing: {title}")
+            logger.info(f"Summarizing episode: {title}")
 
-            # Load transcript
-            transcript_path = Path("blobs/transcripts") / f"{guid}.json"
-            if not transcript_path.exists():
-                logger.warning(f"Transcript not found: {transcript_path}")
-                continue
-
-            import json
-            with open(transcript_path) as f:
-                transcript_data = json.load(f)
-
-            transcript_text = transcript_data.get("text", "")
-
-            # Generate summary
-            summary = summarize_content(
+            # Summarize
+            summary_response = summarize_content(
                 content_type="podcast",
                 title=title,
-                author=author,
+                author=author or "Unknown",
                 date=publish_date,
-                content_text=transcript_text
+                content_text=transcript_text,
             )
-            rating = rate_content(
+
+            # Rate
+            rating_response = rate_content(
                 content_type="podcast",
                 title=title,
-                summary=summary.summary,
-                key_topics=summary.key_topics
+                summary=summary_response.summary,
+                key_topics=summary_response.key_topics,
             )
 
-            # Save to database (manual insert for now)
-            conn.execute("""
-                UPDATE episodes
-                SET
-                    status = 'summarized',
-                    error_reason = NULL
-                WHERE guid = ?
-            """, [guid])
+            # Save to database
+            save_summary(
+                conn,
+                item_id=guid,
+                item_type="podcast",
+                summary=summary_response.summary,
+                key_topics=json.dumps(summary_response.key_topics),
+                companies=json.dumps([c.dict() for c in summary_response.companies]),
+                tools=json.dumps([t.dict() for t in summary_response.tools]),
+                quotes=json.dumps([q.dict() for q in summary_response.quotes]),
+                raw_rating=rating_response.rating,
+                final_rating=rating_response.rating,
+            )
 
-            logger.info(f"Summary: {summary.summary[:100]}...")
-            logger.info(f"Topics: {', '.join(summary.key_topics)}")
-            logger.info(f"Rating: {rating.rating}/5 - {rating.rationale}")
-            logger.info(f"✓ Completed: {title} (Rating: {rating.rating}/5)")
+            logger.info(f"Completed summarization for: {title}")
 
         except Exception as e:
             logger.error(f"Failed to summarize {title}: {e}")
-            update_episode_status(conn, guid, "failed", str(e))
+
+    # Get newsletters needing summarization
+    newsletters = get_completed_newsletters_needing_summary(conn, limit=args.limit)
+    logger.info(f"Found {len(newsletters)} newsletters needing summarization")
+
+    for newsletter in newsletters:
+        message_id = newsletter["message_id"]
+        subject = newsletter["subject"]
+        sender = newsletter["sender"]
+        date = newsletter["date"]
+
+        # Read parsed newsletter content
+        newsletter_dir = Path("blobs/newsletters")
+        parsed_file = newsletter_dir / f"{message_id}.txt"
+
+        if not parsed_file.exists():
+            logger.warning(f"Parsed newsletter file not found: {parsed_file}")
+            continue
+
+        content_text = parsed_file.read_text()
+
+        try:
+            logger.info(f"Summarizing newsletter: {subject}")
+
+            # Summarize
+            summary_response = summarize_content(
+                content_type="newsletter",
+                title=subject,
+                author=sender,
+                date=date,
+                content_text=content_text,
+            )
+
+            # Rate
+            rating_response = rate_content(
+                content_type="newsletter",
+                title=subject,
+                summary=summary_response.summary,
+                key_topics=summary_response.key_topics,
+            )
+
+            # Save to database
+            save_summary(
+                conn,
+                item_id=message_id,
+                item_type="newsletter",
+                summary=summary_response.summary,
+                key_topics=json.dumps(summary_response.key_topics),
+                companies=json.dumps([c.dict() for c in summary_response.companies]),
+                tools=json.dumps([t.dict() for t in summary_response.tools]),
+                quotes=json.dumps([q.dict() for q in summary_response.quotes]),
+                raw_rating=rating_response.rating,
+                final_rating=rating_response.rating,
+            )
+
+            logger.info(f"Completed summarization for: {subject}")
+
+        except Exception as e:
+            logger.error(f"Failed to summarize {subject}: {e}")
 
     logger.info("Summarization complete")
 
@@ -410,6 +462,7 @@ def main():
 
     # Summarize command
     summarize_parser = subparsers.add_parser("summarize", help="Summarize completed content")
+    summarize_parser.add_argument("--limit", type=int, help="Limit number of items to summarize")
     summarize_parser.set_defaults(func=cmd_summarize)
 
     # Export command
