@@ -10,6 +10,8 @@ Implemented new export lifecycle with explicit `exported` status tracking and co
 ### 1. Database Schema (`src/db/schema.py`)
 - ✅ Added `exported_at TIMESTAMP` column to `episodes` table
 - ✅ Added `exported_at TIMESTAMP` column to `newsletters` table
+- ✅ Added proper migration system (v1 → v2) with `ALTER TABLE` for existing databases
+- ✅ Migration checks if columns exist before adding (idempotent)
 - Tracks when each item was exported to Obsidian
 
 ### 2. Configuration (`config.yaml` + `src/config.py`)
@@ -109,6 +111,7 @@ python scripts/backfill_historical.py --no-push
 This PR delivers the **MVP export lifecycle**:
 - ✅ `exported_at` timestamp tracking
 - ✅ `status='exported'` lifecycle state
+- ✅ Proper database migration system (v1 → v2 with `ALTER TABLE`)
 - ✅ Configurable Git push (`export.git_push` + `--push`/`--no-push` flags)
 - ✅ Backfill script for historical episodes
 - ✅ Idempotent exports (items only exported once)
