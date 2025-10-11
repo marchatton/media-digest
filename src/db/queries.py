@@ -145,8 +145,9 @@ def get_pending_episodes(conn, limit: int | None = None) -> list[dict[str, Any]]
     if limit:
         query += f" LIMIT {limit}"
 
-    result = conn.execute(query).fetchall()
-    columns = [desc[0] for desc in conn.description]
+    cursor = conn.execute(query)
+    result = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in result]
 
 
@@ -164,8 +165,9 @@ def get_pending_newsletters(conn, limit: int | None = None) -> list[dict[str, An
     if limit:
         query += f" LIMIT {limit}"
 
-    result = conn.execute(query).fetchall()
-    columns = [desc[0] for desc in conn.description]
+    cursor = conn.execute(query)
+    result = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in result]
 
 
@@ -213,8 +215,9 @@ def get_completed_episodes_needing_summary(conn, limit: int | None = None) -> li
     if limit:
         query += f" LIMIT {limit}"
 
-    result = conn.execute(query).fetchall()
-    columns = [desc[0] for desc in conn.description]
+    cursor = conn.execute(query)
+    result = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in result]
 
 
@@ -238,8 +241,9 @@ def get_completed_newsletters_needing_summary(conn, limit: int | None = None) ->
     if limit:
         query += f" LIMIT {limit}"
 
-    result = conn.execute(query).fetchall()
-    columns = [desc[0] for desc in conn.description]
+    cursor = conn.execute(query)
+    result = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
     return [dict(zip(columns, row)) for row in result]
 
 
