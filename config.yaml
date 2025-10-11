@@ -29,6 +29,7 @@ llm:
 
 export:
   output_path: 5-Resources/0-Media digester
+  git_push: true  # Push to Git after export (can be overridden with --no-push flag)
   daily_time: "05:00"  # UTC
   weekly_day: "FRI"
   weekly_time: "06:00"  # UTC
