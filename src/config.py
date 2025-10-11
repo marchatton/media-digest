@@ -116,6 +116,10 @@ class Config:
         return self._config_data.get("export", {}).get("output_path", "5-Resources/0-Media digester")
 
     @property
+    def export_git_push(self) -> bool:
+        return self._config_data.get("export", {}).get("git_push", True)
+
+    @property
     def daily_time(self) -> str:
         return self._config_data.get("export", {}).get("daily_time", "05:00")
 

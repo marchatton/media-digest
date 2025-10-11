@@ -20,6 +20,8 @@ from src.db.queries import (
     get_completed_newsletters_needing_summary,
     save_transcript,
     save_summary,
+    mark_episode_exported,
+    mark_newsletter_exported,
 )
 from src.export.digest import generate_daily_digest, write_digest
 from src.export.obsidian import (
@@ -322,17 +324,21 @@ def cmd_summarize(args):
 
 
 def cmd_export(args):
-    """Export notes to Obsidian and push to Git."""
+    """Export notes to Obsidian and optionally push to Git."""
     logger.info("Exporting to Obsidian...")
 
     conn = get_connection()
 
-    # Get summarized episodes
+    # Determine if we should push to Git
+    should_push = args.push if args.push is not None else config.export_git_push
+
+    # Get summarized episodes (status='completed' with summaries, not yet exported)
     episodes = conn.execute("""
-        SELECT guid, title, author, publish_date, audio_url, video_url
-        FROM episodes
-        WHERE status = 'summarized'
-        ORDER BY publish_date DESC
+        SELECT e.guid, e.title, e.author, e.publish_date, e.audio_url, e.video_url
+        FROM episodes e
+        INNER JOIN summaries s ON e.guid = s.item_id AND s.item_type = 'podcast'
+        WHERE e.status = 'completed'
+        ORDER BY e.publish_date DESC
     """).fetchall()
 
     logger.info(f"Found {len(episodes)} episodes to export")
@@ -341,6 +347,7 @@ def cmd_export(args):
     output_dir = Path(config.vault_root) / "5-Resources" / "0-Media digester" / "podcasts"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    exported_count = 0
     for guid, title, author, publish_date, audio_url, video_url in episodes:
         try:
             logger.info(f"Exporting: {title}")
@@ -431,13 +438,31 @@ rating_llm: 3
             with open(note_path, 'w') as f:
                 f.write(note_content)
 
+            # Mark as exported
+            mark_episode_exported(conn, guid)
+            exported_count += 1
+
             logger.info(f"✓ Exported to: {note_path}")
 
         except Exception as e:
             logger.error(f"Failed to export {title}: {e}")
 
-    logger.info(f"Export complete. Notes saved to: {output_dir}")
-    logger.info("Note: Git operations skipped for testing")
+    logger.info(f"Export complete. {exported_count} episodes exported to: {output_dir}")
+
+    # Git push if enabled
+    if should_push and exported_count > 0:
+        logger.info("Pushing to Git...")
+        try:
+            git_commit_and_push(
+                config.vault_root,
+                f"Auto-export: {exported_count} podcast episodes"
+            )
+        except Exception as e:
+            logger.error(f"Git push failed: {e}")
+    elif not should_push:
+        logger.info("Git push skipped (--no-push flag or config setting)")
+    else:
+        logger.info("No new exports, skipping Git push")
 
 
 def main():
@@ -467,6 +492,8 @@ def main():
 
     # Export command
     export_parser = subparsers.add_parser("export", help="Export to Obsidian")
+    export_parser.add_argument("--push", dest="push", action="store_true", default=None, help="Force Git push after export")
+    export_parser.add_argument("--no-push", dest="push", action="store_false", help="Skip Git push after export")
     export_parser.set_defaults(func=cmd_export)
 
     # Parse args
