@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS episodes (
     status TEXT NOT NULL DEFAULT 'pending',
     error_reason TEXT,
     created_at TIMESTAMP DEFAULT (now()),
-    updated_at TIMESTAMP DEFAULT (now())
+    updated_at TIMESTAMP DEFAULT (now()),
+    exported_at TIMESTAMP
 )
 """
 
@@ -30,7 +31,8 @@ CREATE TABLE IF NOT EXISTS newsletters (
     status TEXT NOT NULL DEFAULT 'pending',
     error_reason TEXT,
     created_at TIMESTAMP DEFAULT (now()),
-    updated_at TIMESTAMP DEFAULT (now())
+    updated_at TIMESTAMP DEFAULT (now()),
+    exported_at TIMESTAMP
 )
 """
 

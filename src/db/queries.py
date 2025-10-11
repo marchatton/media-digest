@@ -286,3 +286,41 @@ def save_summary(
     )
     conn.commit()
     logger.debug(f"Saved summary for {item_type} {item_id}")
+
+
+def mark_episode_exported(conn, guid: str) -> None:
+    """Mark episode as exported.
+
+    Args:
+        conn: Database connection
+        guid: Episode GUID
+    """
+    conn.execute(
+        """
+        UPDATE episodes
+        SET status = 'exported', exported_at = now(), updated_at = now()
+        WHERE guid = ?
+        """,
+        (guid,),
+    )
+    conn.commit()
+    logger.debug(f"Marked episode {guid} as exported")
+
+
+def mark_newsletter_exported(conn, message_id: str) -> None:
+    """Mark newsletter as exported.
+
+    Args:
+        conn: Database connection
+        message_id: Newsletter message ID
+    """
+    conn.execute(
+        """
+        UPDATE newsletters
+        SET status = 'exported', exported_at = now(), updated_at = now()
+        WHERE message_id = ?
+        """,
+        (message_id,),
+    )
+    conn.commit()
+    logger.debug(f"Marked newsletter {message_id} as exported")
