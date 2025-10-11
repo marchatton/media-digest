@@ -16,6 +16,10 @@ from src.db.queries import (
     update_newsletter_status,
     get_pending_episodes,
     get_pending_newsletters,
+    get_episodes_for_summarization,
+    get_newsletters_for_summarization,
+    get_summarized_episodes,
+    get_summarized_newsletters,
     save_transcript,
     save_summary,
 )
@@ -207,18 +211,203 @@ def cmd_summarize(args):
 
     conn = get_connection()
 
-    # TODO: Get completed episodes/newsletters that don't have summaries yet
-    # For now, this is a placeholder
-    logger.warning("Summarization not yet implemented - use dedicated script")
+    # Get items needing summarization
+    episodes = get_episodes_for_summarization(conn, limit=args.limit)
+    newsletters = get_newsletters_for_summarization(conn, limit=args.limit)
+
+    logger.info(f"Found {len(episodes)} episodes and {len(newsletters)} newsletters to summarize")
+
+    # Summarize episodes
+    for episode in episodes:
+        guid = episode["guid"]
+        title = episode["title"]
+        author = episode.get("author", "Unknown")
+        publish_date = episode.get("publish_date", "")
+        transcript_text = episode["transcript_text"]
+
+        try:
+            logger.info(f"Summarizing episode: {title}")
+
+            # Clean transcript (calculate duration from transcript length as estimate)
+            duration = "~30 min"  # Placeholder
+            cleaned = clean_transcript(title=title, duration=duration, raw_transcript=transcript_text)
+
+            # Summarize
+            summary_result = summarize_content(
+                content_type="podcast",
+                title=title,
+                author=author,
+                date=publish_date,
+                content_text=cleaned
+            )
+
+            # Rate
+            rating_result = rate_content(
+                content_type="podcast",
+                title=title,
+                summary=summary_result.summary,
+                key_topics=summary_result.key_topics,
+            )
+
+            # Save to database
+            save_summary(
+                conn,
+                item_id=guid,
+                item_type="podcast",
+                summary=summary_result.summary,
+                key_topics=json.dumps(summary_result.key_topics),
+                companies=json.dumps([c.model_dump() for c in summary_result.companies]),
+                tools=json.dumps([t.model_dump() for t in summary_result.tools]),
+                quotes=json.dumps([q.model_dump() for q in summary_result.quotes]),
+                raw_rating=rating_result.rating,
+                final_rating=rating_result.rating,  # For now, no calibration
+            )
+
+            logger.info(f"Completed summarization: {title}")
+
+        except Exception as e:
+            logger.error(f"Failed to summarize {title}: {e}")
+
+    # Summarize newsletters
+    for newsletter in newsletters:
+        message_id = newsletter["message_id"]
+        subject = newsletter["subject"]
+        sender = newsletter.get("sender", "Unknown")
+        date = newsletter.get("date", "")
+
+        # Load parsed text from file
+        newsletter_dir = Path("blobs/newsletters")
+        parsed_file = newsletter_dir / f"{message_id}.json"
+
+        if not parsed_file.exists():
+            logger.warning(f"No parsed text for newsletter: {subject}")
+            continue
+
+        with open(parsed_file, "r") as f:
+            parsed_data = json.load(f)
+            parsed_text = parsed_data.get("text", "")
+
+        try:
+            logger.info(f"Summarizing newsletter: {subject}")
+
+            # Summarize (no cleaning needed for newsletters)
+            summary_result = summarize_content(
+                content_type="newsletter",
+                title=subject,
+                author=sender,
+                date=date,
+                content_text=parsed_text
+            )
+
+            # Rate
+            rating_result = rate_content(
+                content_type="newsletter",
+                title=subject,
+                summary=summary_result.summary,
+                key_topics=summary_result.key_topics,
+            )
+
+            # Save to database
+            save_summary(
+                conn,
+                item_id=message_id,
+                item_type="newsletter",
+                summary=summary_result.summary,
+                key_topics=json.dumps(summary_result.key_topics),
+                companies=json.dumps([c.model_dump() for c in summary_result.companies]),
+                tools=json.dumps([t.model_dump() for t in summary_result.tools]),
+                quotes=json.dumps([q.model_dump() for q in summary_result.quotes]),
+                raw_rating=rating_result.rating,
+                final_rating=rating_result.rating,  # For now, no calibration
+            )
+
+            logger.info(f"Completed summarization: {subject}")
+
+        except Exception as e:
+            logger.error(f"Failed to summarize {subject}: {e}")
+
+    logger.info("Summarization complete")
 
 
 def cmd_export(args):
     """Export notes to Obsidian and push to Git."""
     logger.info("Exporting to Obsidian...")
 
-    # TODO: Implement full export logic
-    # For now, this is a placeholder
-    logger.warning("Export not yet fully implemented")
+    conn = get_connection()
+    output_dir = Path(config.output_repo_path)
+
+    # Get items with summaries
+    episodes = get_summarized_episodes(conn, limit=args.limit)
+    newsletters = get_summarized_newsletters(conn, limit=args.limit)
+
+    logger.info(f"Exporting {len(episodes)} episodes and {len(newsletters)} newsletters")
+
+    # Export episodes
+    for episode in episodes:
+        try:
+            # Parse JSON fields
+            key_topics = json.loads(episode.get("key_topics", "[]"))
+            companies = json.loads(episode.get("companies", "[]"))
+            tools = json.loads(episode.get("tools", "[]"))
+            quotes = json.loads(episode.get("quotes", "[]"))
+
+            # Render note
+            note_content = render_episode_note(
+                title=episode["title"],
+                date=episode["publish_date"],
+                authors=[episode.get("author", "Unknown")],
+                guests=[],  # No guest extraction in MVP
+                link=episode.get("audio_url", ""),
+                version=episode["guid"],
+                rating_llm=episode.get("final_rating", 0),
+                summary=episode["summary"],
+                key_topics=key_topics,
+                companies=companies,
+                tools=tools,
+                quotes=quotes,
+            )
+
+            # Write to output directory
+            note_filename = f"{episode['publish_date']}_{episode['guid'][:8]}.md"
+            note_path = output_dir / note_filename
+            write_note(note_path, note_content)
+
+            logger.info(f"Exported episode: {episode['title']}")
+
+        except Exception as e:
+            logger.error(f"Failed to export episode {episode['title']}: {e}")
+
+    # Export newsletters
+    for newsletter in newsletters:
+        try:
+            # Parse JSON fields
+            newsletter["key_topics"] = json.loads(newsletter.get("key_topics", "[]"))
+            newsletter["companies"] = json.loads(newsletter.get("companies", "[]"))
+            newsletter["tools"] = json.loads(newsletter.get("tools", "[]"))
+            newsletter["quotes"] = json.loads(newsletter.get("quotes", "[]"))
+
+            # Render note
+            note_content = render_newsletter_note(newsletter)
+
+            # Write to output directory
+            note_filename = f"{newsletter['date']}_{newsletter['message_id'][:8]}.md"
+            note_path = output_dir / note_filename
+            write_note(note_path, note_content)
+
+            logger.info(f"Exported newsletter: {newsletter['subject']}")
+
+        except Exception as e:
+            logger.error(f"Failed to export newsletter {newsletter['subject']}: {e}")
+
+    # Git commit and push
+    if args.push:
+        try:
+            git_commit_and_push(output_dir, f"Export notes - {datetime.now().strftime('%Y-%m-%d')}")
+            logger.info("Pushed to Git")
+        except Exception as e:
+            logger.error(f"Failed to push to Git: {e}")
+
+    logger.info("Export complete")
 
 
 def main():
@@ -243,10 +432,13 @@ def main():
 
     # Summarize command
     summarize_parser = subparsers.add_parser("summarize", help="Summarize completed content")
+    summarize_parser.add_argument("--limit", type=int, help="Limit number of items to summarize")
     summarize_parser.set_defaults(func=cmd_summarize)
 
     # Export command
     export_parser = subparsers.add_parser("export", help="Export to Obsidian")
+    export_parser.add_argument("--limit", type=int, help="Limit number of items to export")
+    export_parser.add_argument("--push", action="store_true", help="Push to Git after export")
     export_parser.set_defaults(func=cmd_export)
 
     # Parse args
