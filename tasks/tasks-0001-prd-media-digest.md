@@ -115,13 +115,15 @@ Based on PRD: `0001-prd-media-digest.md`
 - `tests/fixtures/sample_transcript.txt` - Test transcript
 
 ### Data & Configuration (gitignored)
-- `data/podcasts.opml` - User's podcast subscriptions
+- `data/podcasts.opml` - User's podcast subscriptions (currently 6 AI/tech podcasts - needs expansion)
 - `data/tags.md` - Cached tag whitelist from Obsidian
 - `blobs/audio/` - Downloaded audio files
 - `blobs/transcripts/` - Transcription outputs
 - `logs/digest.log` - Application logs
 - `secure/gmail_token.json` - Gmail OAuth token
 - `digestor.duckdb` - Database file
+
+**NOTE:** The OPML file currently only contains 6 AI/tech podcasts from the initial setup (Latent Space, Dwarkesh, High Agency, Practical AI, My First Million, Lenny's Podcast). This list should be expanded with additional podcast subscriptions. Refer to `docs/ai-podcasts-directory.md` for more podcast options to add.
 
 ### Notes
 - Tests use `pytest` (not Jest - this is Python)

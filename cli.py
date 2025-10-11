@@ -218,7 +218,7 @@ def cmd_summarize(args):
     for episode in episodes:
         guid = episode["guid"]
         title = episode["title"]
-        author = episode["author"]
+        author = episode.get("author") or "Unknown"
         publish_date = episode["publish_date"]
         transcript_text = episode["transcript_text"]
 
@@ -229,7 +229,7 @@ def cmd_summarize(args):
             summary_response = summarize_content(
                 content_type="podcast",
                 title=title,
-                author=author or "Unknown",
+                author=author,
                 date=publish_date,
                 content_text=transcript_text,
             )
@@ -249,9 +249,9 @@ def cmd_summarize(args):
                 item_type="podcast",
                 summary=summary_response.summary,
                 key_topics=json.dumps(summary_response.key_topics),
-                companies=json.dumps([c.dict() for c in summary_response.companies]),
-                tools=json.dumps([t.dict() for t in summary_response.tools]),
-                quotes=json.dumps([q.dict() for q in summary_response.quotes]),
+                companies=json.dumps([c.model_dump() for c in summary_response.companies]),
+                tools=json.dumps([t.model_dump() for t in summary_response.tools]),
+                quotes=json.dumps([q.model_dump() for q in summary_response.quotes]),
                 raw_rating=rating_response.rating,
                 final_rating=rating_response.rating,
             )
@@ -308,9 +308,9 @@ def cmd_summarize(args):
                 item_type="newsletter",
                 summary=summary_response.summary,
                 key_topics=json.dumps(summary_response.key_topics),
-                companies=json.dumps([c.dict() for c in summary_response.companies]),
-                tools=json.dumps([t.dict() for t in summary_response.tools]),
-                quotes=json.dumps([q.dict() for q in summary_response.quotes]),
+                companies=json.dumps([c.model_dump() for c in summary_response.companies]),
+                tools=json.dumps([t.model_dump() for t in summary_response.tools]),
+                quotes=json.dumps([q.model_dump() for q in summary_response.quotes]),
                 raw_rating=rating_response.rating,
                 final_rating=rating_response.rating,
             )
