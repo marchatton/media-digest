@@ -71,33 +71,49 @@ python scripts/backfill_historical.py --no-push
 
 ## Tasks
 
-- [ ] 1.0 Establish Status Lifecycle & Persistence Updates
-  - [ ] 1.1 Document the desired status flow (`pending → in_progress → completed → summarized → exported`) and failure semantics.
-  - [ ] 1.2 Update DuckDB schema (or migrations) to support new statuses and optionally add `exported_at`.
-  - [ ] 1.3 Extend query helpers to fetch summarized-but-unexported items and perform atomic status/error updates.
+**Note:** Scope was narrowed to MVP implementation (export lifecycle only). Full service refactor deferred.
 
-- [ ] 2.0 Implement Summarization Service
+- [x] 1.0 Establish Status Lifecycle & Persistence Updates
+  - [x] 1.1 Document the desired status flow (`pending → in_progress → completed → exported`) - simplified from original plan.
+  - [x] 1.2 Update DuckDB schema to add `exported_at` column.
+  - [x] 1.3 Add query helpers to mark items as exported (`mark_episode_exported`, `mark_newsletter_exported`).
+
+- [ ] 2.0 Implement Summarization Service *(DEFERRED - using existing cmd_summarize)*
   - [ ] 2.1 Create `src/summarize/service.py` encapsulating dependencies (DB connection factory, filesystem paths, Claude client).
   - [ ] 2.2 Implement podcast pipeline: load transcript JSON, clean transcript, summarize, rate, persist summary, transition to `summarized`.
   - [ ] 2.3 Implement newsletter pipeline: load parsed newsletter JSON, summarize, rate, persist, transition to `summarized`.
   - [ ] 2.4 Add structured logging/error handling that records `error_reason` without blocking retries.
   - [ ] 2.5 Add unit tests covering podcast/newsletter success paths and representative failure modes.
 
-- [ ] 3.0 Implement Export Service
-  - [ ] 3.1 Create `src/export/service.py` orchestrating export with dependency injection.
-  - [ ] 3.2 Implement podcast export: render via `render_episode_note`, respect manual edits with `write_note`, update status/`exported_at`.
-  - [ ] 3.3 Implement newsletter export with the same guardrails and template usage.
-  - [ ] 3.4 Add deterministic filename + slug helpers shared across content types.
-  - [ ] 3.5 Add unit/integration tests (using temp dirs) verifying exports, manual edit protection, and status updates.
+- [x] 3.0 Implement Export Lifecycle Updates *(PARTIALLY - CLI-based, not service-based)*
+  - [ ] 3.1 Create `src/export/service.py` orchestrating export with dependency injection. *(DEFERRED)*
+  - [x] 3.2 Update CLI export to query only unexported items, mark as exported after success.
+  - [x] 3.3 Add Git push toggle via config and CLI flags.
+  - [x] 3.4 Backfill script for historical content.
+  - [ ] 3.5 Add unit/integration tests (using temp dirs) verifying exports, manual edit protection, and status updates. *(DEFERRED)*
 
-- [ ] 4.0 Refactor CLI Commands & Documentation
-  - [ ] 4.1 Update `cmd_summarize` to call the summarization service, propagate failures via exit codes, and support optional batching flags.
-  - [ ] 4.2 Update `cmd_export` to call the export service, log exported/skipped/failed counts, and toggle Git operations via config flag.
-  - [ ] 4.3 Refresh README, DEVELOPMENT, and STATUS docs to explain the new lifecycle and usage.
-  - [ ] 4.4 Add pytest integration test covering summarize → export flow using fixtures.
+- [x] 4.0 CLI Commands & Configuration
+  - [ ] 4.1 Update `cmd_summarize` to call the summarization service. *(DEFERRED - using existing implementation)*
+  - [x] 4.2 Update `cmd_export` to log exported counts and toggle Git operations via config flag.
+  - [ ] 4.3 Refresh README, DEVELOPMENT, and STATUS docs to explain the new lifecycle and usage. *(DEFERRED)*
+  - [ ] 4.4 Add pytest integration test covering summarize → export flow using fixtures. *(DEFERRED)*
 
-- [ ] 5.0 Observability & Cleanup
+- [ ] 5.0 Observability & Cleanup *(DEFERRED)*
   - [ ] 5.1 Enhance `ClaudeClient` logging with item identifiers and model names for traceability.
   - [ ] 5.2 Ensure failures populate `error_reason` consistently and surface in logs; add regression tests where practical.
   - [ ] 5.3 Remove placeholder Markdown generation from `cli.py` and dead code paths superseded by services.
   - [ ] 5.4 Create follow-up ticket for post-MVP tagging and digest commands once refactor lands.
+
+## What Was Actually Completed
+
+This PR delivers the **MVP export lifecycle**:
+- ✅ `exported_at` timestamp tracking
+- ✅ `status='exported'` lifecycle state
+- ✅ Configurable Git push (`export.git_push` + `--push`/`--no-push` flags)
+- ✅ Backfill script for historical episodes
+- ✅ Idempotent exports (items only exported once)
+
+**Deferred to future PRs:**
+- Full service layer refactor (SummarizationService, ExportService)
+- Comprehensive test suite
+- Documentation updates
