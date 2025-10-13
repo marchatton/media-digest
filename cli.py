@@ -501,15 +501,51 @@ def cmd_build_weekly(args):
 
 
 def cmd_retry(args):
-    """Retry a failed item by ID (placeholder)."""
-    logger.info(f"Retry requested for item: {args.item_id}")
-    logger.warning("Retry not yet implemented")
+    """Retry a failed item by ID.
+
+    If podcast: reset status to pending to re-process audio; if newsletter: reset to pending to re-parse.
+    """
+    conn = get_connection()
+    item_id = args.item_id
+
+    # Detect type
+    ep = conn.execute("SELECT guid FROM episodes WHERE guid = ?", (item_id,)).fetchone()
+    if ep:
+        conn.execute("UPDATE episodes SET status = 'pending', error_reason = NULL, updated_at = now() WHERE guid = ?", (item_id,))
+        conn.commit()
+        logger.info(f"Episode {item_id} reset to pending")
+        return
+
+    nl = conn.execute("SELECT message_id FROM newsletters WHERE message_id = ?", (item_id,)).fetchone()
+    if nl:
+        conn.execute("UPDATE newsletters SET status = 'pending', error_reason = NULL, updated_at = now() WHERE message_id = ?", (item_id,))
+        conn.commit()
+        logger.info(f"Newsletter {item_id} reset to pending")
+        return
+
+    logger.error(f"Item not found: {item_id}")
 
 
 def cmd_skip(args):
-    """Skip an item permanently by ID (placeholder)."""
-    logger.info(f"Skip requested for item: {args.item_id}")
-    logger.warning("Skip not yet implemented")
+    """Skip an item permanently by ID by setting status to 'skipped'."""
+    conn = get_connection()
+    item_id = args.item_id
+
+    # Try episode
+    updated = conn.execute("UPDATE episodes SET status = 'skipped', updated_at = now() WHERE guid = ?", (item_id,)).rowcount
+    if updated:
+        conn.commit()
+        logger.info(f"Episode {item_id} marked as skipped")
+        return
+
+    # Try newsletter
+    updated = conn.execute("UPDATE newsletters SET status = 'skipped', updated_at = now() WHERE message_id = ?", (item_id,)).rowcount
+    if updated:
+        conn.commit()
+        logger.info(f"Newsletter {item_id} marked as skipped")
+        return
+
+    logger.error(f"Item not found: {item_id}")
 
 
 def main():
