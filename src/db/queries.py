@@ -235,3 +235,33 @@ def save_summary(
     )
     conn.commit()
     logger.debug(f"Saved summary for {item_type} {item_id}")
+
+
+def get_items_needing_summary(conn, limit: int | None = None) -> list[dict[str, Any]]:
+    """Return processed items (episodes/newsletters) that lack entries in summaries.
+
+    Returns rows with a unified shape: {item_type, id, title, date, author, link?, text_source}
+    """
+    # Episodes completed without summary
+    episodes_query = (
+        "SELECT 'podcast' AS item_type, e.guid AS id, e.title, e.publish_date AS date, coalesce(e.author, '') AS author, "
+        "coalesce(e.video_url, e.audio_url, '') AS link "
+        "FROM episodes e LEFT JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast' "
+        "WHERE e.status = 'completed' AND s.item_id IS NULL"
+    )
+
+    # Newsletters completed without summary
+    newsletters_query = (
+        "SELECT 'newsletter' AS item_type, n.message_id AS id, n.subject AS title, n.date AS date, n.sender AS author, "
+        "coalesce(n.link, '') AS link "
+        "FROM newsletters n LEFT JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter' "
+        "WHERE n.status = 'completed' AND s.item_id IS NULL"
+    )
+
+    union_query = f"{episodes_query} UNION ALL {newsletters_query} ORDER BY date DESC"
+    if limit:
+        union_query += f" LIMIT {limit}"
+
+    result = conn.execute(union_query).fetchall()
+    columns = [desc[0] for desc in conn.description]
+    return [dict(zip(columns, row)) for row in result]

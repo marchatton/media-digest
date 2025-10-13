@@ -18,6 +18,7 @@ from src.db.queries import (
     get_pending_newsletters,
     save_transcript,
     save_summary,
+    get_items_needing_summary,
 )
 from src.export.digest import generate_daily_digest, write_digest
 from src.export.obsidian import (
@@ -206,10 +207,68 @@ def cmd_summarize(args):
     logger.info("Summarizing content...")
 
     conn = get_connection()
+    items = get_items_needing_summary(conn, limit=args.limit)
 
-    # TODO: Get completed episodes/newsletters that don't have summaries yet
-    # For now, this is a placeholder
-    logger.warning("Summarization not yet implemented - use dedicated script")
+    logger.info(f"Found {len(items)} items to summarize")
+
+    for item in items:
+        item_type = item["item_type"]
+        item_id = item["id"]
+        title = item["title"]
+        author = item.get("author", "")
+        date = item.get("date", "")
+        link = item.get("link", "")
+
+        try:
+            logger.info(f"Summarizing {item_type}: {title}")
+            # Load content text
+            if item_type == "podcast":
+                row = conn.execute("SELECT transcript_text FROM transcripts WHERE episode_guid = ?", (item_id,)).fetchone()
+                if not row:
+                    logger.warning(f"No transcript for {item_id}, skipping")
+                    continue
+                content_text = row[0]
+            else:
+                row = conn.execute("SELECT body_text FROM newsletters WHERE message_id = ?", (item_id,)).fetchone()
+                content_text = row[0] if row and row[0] else ""
+
+            if not content_text:
+                logger.warning(f"Empty content for {item_id}, skipping")
+                continue
+
+            summary_resp = summarize_content(
+                content_type=item_type,
+                title=title,
+                author=author,
+                date=date,
+                content_text=content_text,
+            )
+
+            rating_resp = rate_content(
+                content_type=item_type,
+                title=title,
+                summary=summary_resp.summary,
+                key_topics=summary_resp.key_topics,
+            )
+
+            import json as _json
+            save_summary(
+                conn,
+                item_id=item_id,
+                item_type=item_type,
+                summary=summary_resp.summary,
+                key_topics=_json.dumps(summary_resp.key_topics),
+                companies=_json.dumps([c.dict() for c in summary_resp.companies]),
+                tools=_json.dumps([t.dict() for t in summary_resp.tools]),
+                quotes=_json.dumps([q.dict() for q in summary_resp.quotes]),
+                raw_rating=rating_resp.rating,
+                final_rating=rating_resp.rating,
+            )
+
+            logger.info(f"Saved summary for {item_type} {item_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to summarize {item_type} {item_id}: {e}")
 
 
 def cmd_export(args):
@@ -277,6 +336,7 @@ def main():
 
     # Summarize command
     summarize_parser = subparsers.add_parser("summarize", help="Summarize completed content")
+    summarize_parser.add_argument("--limit", type=int, help="Limit number of items to summarize")
     summarize_parser.set_defaults(func=cmd_summarize)
 
     # Export command
