@@ -345,23 +345,153 @@ def cmd_export(args):
 def cmd_build_daily(args):
     """Generate daily digest for a date."""
     logger.info(f"Building daily digest for {args.date}")
-    # Placeholder: integrate with DB once summaries exist
-    content = generate_daily_digest(datetime.now(), items=[], failures=[], themes=[], actionables=[])
+
+    from datetime import date as _date
+    target_date = _date.today() if args.date == "today" else _date.fromisoformat(args.date)
+
+    conn = get_connection()
+
+    # Items processed (summarized) on target_date
+    items: list[dict] = []
+
+    # Episodes
+    ep_rows = conn.execute(
+        """
+        SELECT e.title, e.publish_date, s.final_rating, s.summary
+        FROM episodes e
+        JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
+        WHERE CAST(s.created_at AS DATE) = ?
+        ORDER BY s.created_at DESC
+        """,
+        (str(target_date),),
+    ).fetchall()
+    for title, publish_date, rating, summary in ep_rows:
+        note_filename = f"{publish_date[:10]} - {title}.md"
+        items.append({
+            "title": title,
+            "type": "podcast",
+            "rating_llm": rating or 0,
+            "summary": summary,
+            "note_link": note_filename,
+        })
+
+    # Newsletters
+    nl_rows = conn.execute(
+        """
+        SELECT n.subject, n.date, s.final_rating, s.summary
+        FROM newsletters n
+        JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
+        WHERE CAST(s.created_at AS DATE) = ?
+        ORDER BY s.created_at DESC
+        """,
+        (str(target_date),),
+    ).fetchall()
+    for subject, date_str, rating, summary in nl_rows:
+        note_filename = f"{date_str[:10]} - {subject}.md"
+        items.append({
+            "title": subject,
+            "type": "newsletter",
+            "rating_llm": rating or 0,
+            "summary": summary,
+            "note_link": note_filename,
+        })
+
+    # Failures that occurred on target_date
+    failures: list[dict] = []
+    for table, title_col, date_col, type_name in [
+        ("episodes", "title", "updated_at", "podcast"),
+        ("newsletters", "subject", "updated_at", "newsletter"),
+    ]:
+        rows = conn.execute(
+            f"SELECT {title_col}, error_reason FROM {table} WHERE status = 'failed' AND CAST({date_col} AS DATE) = ?",
+            (str(target_date),),
+        ).fetchall()
+        for title, error_reason in rows:
+            failures.append({
+                "title": title,
+                "type": type_name,
+                "error_reason": error_reason or "",
+            })
+
+    content = generate_daily_digest(
+        date=target_date,
+        items=items,
+        failures=failures,
+        themes=[],
+        actionables=[],
+    )
+
     output_dir = config.output_repo_path / config.export_output_path
-    output_path = output_dir / f"daily-{datetime.now().strftime('%Y-%m-%d')}.md"
+    output_path = output_dir / f"daily-{target_date.isoformat()}.md"
     write_digest(output_path, content)
-    logger.info("Daily digest generated (placeholder)")
+    logger.info("Daily digest generated")
 
 
 def cmd_build_weekly(args):
     """Generate weekly digest ending at a date."""
     logger.info(f"Building weekly digest ending {args.ending}")
-    # Placeholder: integrate with DB once summaries exist
-    content = generate_daily_digest(datetime.now(), items=[], failures=[], themes=[], actionables=[])
+
+    from datetime import date as _date, timedelta
+    week_end = _date.today() if args.ending == "today" else _date.fromisoformat(args.ending)
+    week_start = week_end - timedelta(days=6)
+
+    conn = get_connection()
+
+    items: list[dict] = []
+
+    # Collect items for the week, sorted by rating desc then recency
+    rows = conn.execute(
+        """
+        SELECT 'podcast' AS type, e.title AS title, e.publish_date AS date, s.final_rating AS rating, s.summary
+        FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
+        WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
+        UNION ALL
+        SELECT 'newsletter' AS type, n.subject AS title, n.date AS date, s.final_rating AS rating, s.summary
+        FROM newsletters n JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
+        WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
+        ORDER BY rating DESC NULLS LAST, date DESC
+        """,
+        (str(week_start), str(week_end), str(week_start), str(week_end)),
+    ).fetchall()
+
+    for type_name, title, date_str, rating, summary in rows:
+        note_filename = f"{date_str[:10]} - {title}.md"
+        # Simple placeholder takeaways: one item from summary
+        takeaways = [{"text": summary, "reference": ""}]
+        items.append({
+            "title": title,
+            "rating_llm": rating or 0,
+            "takeaways": takeaways,
+            "note_link": note_filename,
+        })
+
+    failures: list[dict] = []
+    for table, title_col, date_col, type_name in [
+        ("episodes", "title", "updated_at", "podcast"),
+        ("newsletters", "subject", "updated_at", "newsletter"),
+    ]:
+        frows = conn.execute(
+            f"SELECT {title_col}, error_reason FROM {table} WHERE status = 'failed' AND CAST({date_col} AS DATE) BETWEEN ? AND ?",
+            (str(week_start), str(week_end)),
+        ).fetchall()
+        for title, error_reason in frows:
+            failures.append({
+                "title": title,
+                "type": type_name,
+                "error_reason": error_reason or "",
+            })
+
+    content = generate_weekly_digest(
+        week_start=week_start,
+        week_end=week_end,
+        items=items,
+        failures=failures,
+    )
+
     output_dir = config.output_repo_path / config.export_output_path
-    output_path = output_dir / f"weekly-{datetime.now().strftime('%Y-%m-%d')}.md"
+    output_path = output_dir / f"weekly-{week_end.isoformat()}.md"
     write_digest(output_path, content)
-    logger.info("Weekly digest generated (placeholder)")
+    logger.info("Weekly digest generated")
 
 
 def cmd_retry(args):
