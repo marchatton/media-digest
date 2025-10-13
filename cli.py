@@ -221,6 +221,40 @@ def cmd_export(args):
     logger.warning("Export not yet fully implemented")
 
 
+def cmd_build_daily(args):
+    """Generate daily digest for a date."""
+    logger.info(f"Building daily digest for {args.date}")
+    # Placeholder: integrate with DB once summaries exist
+    content = generate_daily_digest(datetime.now(), items=[], failures=[], themes=[], actionables=[])
+    output_dir = config.output_repo_path / config.export_output_path
+    output_path = output_dir / f"daily-{datetime.now().strftime('%Y-%m-%d')}.md"
+    write_digest(output_path, content)
+    logger.info("Daily digest generated (placeholder)")
+
+
+def cmd_build_weekly(args):
+    """Generate weekly digest ending at a date."""
+    logger.info(f"Building weekly digest ending {args.ending}")
+    # Placeholder: integrate with DB once summaries exist
+    content = generate_daily_digest(datetime.now(), items=[], failures=[], themes=[], actionables=[])
+    output_dir = config.output_repo_path / config.export_output_path
+    output_path = output_dir / f"weekly-{datetime.now().strftime('%Y-%m-%d')}.md"
+    write_digest(output_path, content)
+    logger.info("Weekly digest generated (placeholder)")
+
+
+def cmd_retry(args):
+    """Retry a failed item by ID (placeholder)."""
+    logger.info(f"Retry requested for item: {args.item_id}")
+    logger.warning("Retry not yet implemented")
+
+
+def cmd_skip(args):
+    """Skip an item permanently by ID (placeholder)."""
+    logger.info(f"Skip requested for item: {args.item_id}")
+    logger.warning("Skip not yet implemented")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Media Digest CLI")
@@ -248,6 +282,26 @@ def main():
     # Export command
     export_parser = subparsers.add_parser("export", help="Export to Obsidian")
     export_parser.set_defaults(func=cmd_export)
+
+    # Build daily command
+    daily_parser = subparsers.add_parser("build-daily", help="Generate daily digest")
+    daily_parser.add_argument("--date", default="today", help="Date for digest (YYYY-MM-DD or 'today')")
+    daily_parser.set_defaults(func=cmd_build_daily)
+
+    # Build weekly command
+    weekly_parser = subparsers.add_parser("build-weekly", help="Generate weekly digest")
+    weekly_parser.add_argument("--ending", default="today", help="Week ending date (YYYY-MM-DD or 'today')")
+    weekly_parser.set_defaults(func=cmd_build_weekly)
+
+    # Retry command
+    retry_parser = subparsers.add_parser("retry", help="Retry a failed item by ID")
+    retry_parser.add_argument("--item-id", required=True, help="Item ID to retry")
+    retry_parser.set_defaults(func=cmd_retry)
+
+    # Skip command
+    skip_parser = subparsers.add_parser("skip", help="Skip an item permanently by ID")
+    skip_parser.add_argument("--item-id", required=True, help="Item ID to skip")
+    skip_parser.set_defaults(func=cmd_skip)
 
     # Parse args
     args = parser.parse_args()

@@ -57,8 +57,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     quotes TEXT,
     raw_rating INTEGER,
     final_rating INTEGER,
-    created_at TIMESTAMP DEFAULT (now()),
-    FOREIGN KEY (item_id) REFERENCES episodes(guid)
+    created_at TIMESTAMP DEFAULT (now())
 )
 """
 
@@ -77,6 +76,15 @@ ALL_TABLES = [
     CREATE_SUMMARIES_TABLE,
 ]
 
+# Helpful indexes for query performance
+CREATE_INDEXES = [
+    # Speed up status/date lookups
+    "CREATE INDEX IF NOT EXISTS idx_episodes_status_date ON episodes(status, publish_date)",
+    "CREATE INDEX IF NOT EXISTS idx_newsletters_status_date ON newsletters(status, date)",
+    # Summaries lookup by type/id
+    "CREATE INDEX IF NOT EXISTS idx_summaries_item ON summaries(item_type, item_id)",
+]
+
 
 def init_schema(conn) -> None:
     """Initialize database schema.
@@ -86,6 +94,10 @@ def init_schema(conn) -> None:
     """
     for table_sql in ALL_TABLES:
         conn.execute(table_sql)
+
+    # Create indexes (idempotent)
+    for index_sql in CREATE_INDEXES:
+        conn.execute(index_sql)
 
     # Insert schema version if not exists
     result = conn.execute("SELECT version FROM schema_version WHERE version = ?", (SCHEMA_VERSION,)).fetchone()

@@ -5,11 +5,12 @@ from pathlib import Path
 
 from src.logging_config import get_logger
 from src.utils.retry import retry_with_backoff
+from src.config import config
 
 logger = get_logger(__name__)
 
 
-@retry_with_backoff(max_retries=3, backoff_base=60)
+@retry_with_backoff(max_retries=lambda: config.max_retries_audio, backoff_base=lambda: config.backoff_base)
 def download_audio(url: str, output_dir: Path, episode_guid: str) -> Path:
     """Download audio from URL using yt-dlp.
 
