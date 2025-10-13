@@ -26,6 +26,7 @@ from src.export.obsidian import (
     render_newsletter_note,
     write_note,
     git_commit_and_push,
+    sanitize_filename,
 )
 from src.ingest.podcasts import discover_all_episodes
 from src.ingest.newsletters import discover_all_newsletters
@@ -306,7 +307,8 @@ def cmd_export(args):
             tools=_json.loads(rec["tools"]) if rec["tools"] else [],
             quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
         )
-        note_path = output_root / f"{rec['publish_date'][:10]} - {rec['title']}.md"
+        safe_title = sanitize_filename(rec['title'])
+        note_path = output_root / f"{rec['publish_date'][:10]} - {safe_title}.md"
         write_note(note_path, note, check_edit=True)
 
     # Export newsletters with summaries
@@ -334,12 +336,16 @@ def cmd_export(args):
             tools=_json.loads(rec["tools"]) if rec["tools"] else [],
             quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
         )
-        note_path = output_root / f"{rec['date'][:10]} - {rec['subject']}.md"
+        safe_subject = sanitize_filename(rec['subject'])
+        note_path = output_root / f"{rec['date'][:10]} - {safe_subject}.md"
         write_note(note_path, note, check_edit=True)
 
-    # Commit and push
-    commit_msg = f"Digest export {datetime.now().strftime('%Y-%m-%d')}"
-    git_commit_and_push(config.output_repo_path, commit_msg)
+    # Commit and push unless dry-run
+    if getattr(args, "dry_run", False):
+        logger.info("Dry-run enabled: skipping git commit/push")
+    else:
+        commit_msg = f"Digest export {datetime.now().strftime('%Y-%m-%d')}"
+        git_commit_and_push(config.output_repo_path, commit_msg)
 
 
 def cmd_build_daily(args):
@@ -366,7 +372,7 @@ def cmd_build_daily(args):
         (str(target_date),),
     ).fetchall()
     for title, publish_date, rating, summary in ep_rows:
-        note_filename = f"{publish_date[:10]} - {title}.md"
+        note_filename = f"{publish_date[:10]} - {sanitize_filename(title)}.md"
         items.append({
             "title": title,
             "type": "podcast",
@@ -387,7 +393,7 @@ def cmd_build_daily(args):
         (str(target_date),),
     ).fetchall()
     for subject, date_str, rating, summary in nl_rows:
-        note_filename = f"{date_str[:10]} - {subject}.md"
+        note_filename = f"{date_str[:10]} - {sanitize_filename(subject)}.md"
         items.append({
             "title": subject,
             "type": "newsletter",
@@ -535,14 +541,20 @@ def main():
     export_parser = subparsers.add_parser("export", help="Export to Obsidian")
     export_parser.set_defaults(func=cmd_export)
 
+    # Backward-compatible alias
+    export_obs_parser = subparsers.add_parser("export-obsidian", help="Export to Obsidian (alias)")
+    export_obs_parser.set_defaults(func=cmd_export)
+
     # Build daily command
     daily_parser = subparsers.add_parser("build-daily", help="Generate daily digest")
     daily_parser.add_argument("--date", default="today", help="Date for digest (YYYY-MM-DD or 'today')")
+    daily_parser.add_argument("--dry-run", action="store_true", help="Do not write files; preview only")
     daily_parser.set_defaults(func=cmd_build_daily)
 
     # Build weekly command
     weekly_parser = subparsers.add_parser("build-weekly", help="Generate weekly digest")
     weekly_parser.add_argument("--ending", default="today", help="Week ending date (YYYY-MM-DD or 'today')")
+    weekly_parser.add_argument("--dry-run", action="store_true", help="Do not write files; preview only")
     weekly_parser.set_defaults(func=cmd_build_weekly)
 
     # Retry command
