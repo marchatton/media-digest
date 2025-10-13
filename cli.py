@@ -275,9 +275,71 @@ def cmd_export(args):
     """Export notes to Obsidian and push to Git."""
     logger.info("Exporting to Obsidian...")
 
-    # TODO: Implement full export logic
-    # For now, this is a placeholder
-    logger.warning("Export not yet fully implemented")
+    conn = get_connection()
+    output_root = config.output_repo_path / config.export_output_path
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    # Export episodes with summaries
+    episodes = conn.execute(
+        """
+        SELECT e.guid, e.title, e.publish_date, coalesce(e.author,'') AS author,
+               coalesce(e.video_url, e.audio_url, '') AS link,
+               s.summary, s.key_topics, s.companies, s.tools, s.quotes, s.final_rating
+        FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
+        """
+    ).fetchall()
+    cols = [d[0] for d in conn.description]
+    for row in episodes:
+        rec = dict(zip(cols, row))
+        import json as _json
+        note = render_episode_note(
+            title=rec["title"],
+            date=rec["publish_date"],
+            authors=[rec["author"]] if rec["author"] else [],
+            guests=[],
+            link=rec["link"],
+            version=rec["guid"],
+            rating_llm=rec["final_rating"] or 0,
+            summary=rec["summary"],
+            key_topics=_json.loads(rec["key_topics"]) if rec["key_topics"] else [],
+            companies=_json.loads(rec["companies"]) if rec["companies"] else [],
+            tools=_json.loads(rec["tools"]) if rec["tools"] else [],
+            quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
+        )
+        note_path = output_root / f"{rec['publish_date'][:10]} - {rec['title']}.md"
+        write_note(note_path, note, check_edit=True)
+
+    # Export newsletters with summaries
+    newsletters = conn.execute(
+        """
+        SELECT n.message_id, n.subject, n.date, n.sender, coalesce(n.link,'') AS link,
+               s.summary, s.key_topics, s.companies, s.tools, s.quotes, s.final_rating
+        FROM newsletters n JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
+        """
+    ).fetchall()
+    cols = [d[0] for d in conn.description]
+    for row in newsletters:
+        rec = dict(zip(cols, row))
+        import json as _json
+        note = render_newsletter_note(
+            title=rec["subject"],
+            date=rec["date"],
+            authors=[rec["sender"]] if rec["sender"] else [],
+            link=rec["link"],
+            version=rec["message_id"],
+            rating_llm=rec["final_rating"] or 0,
+            summary=rec["summary"],
+            key_topics=_json.loads(rec["key_topics"]) if rec["key_topics"] else [],
+            companies=_json.loads(rec["companies"]) if rec["companies"] else [],
+            tools=_json.loads(rec["tools"]) if rec["tools"] else [],
+            quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
+        )
+        note_path = output_root / f"{rec['date'][:10]} - {rec['subject']}.md"
+        write_note(note_path, note, check_edit=True)
+
+    # Commit and push
+    commit_msg = f"Digest export {datetime.now().strftime('%Y-%m-%d')}"
+    git_commit_and_push(config.output_repo_path, commit_msg)
 
 
 def cmd_build_daily(args):
