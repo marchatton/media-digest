@@ -185,6 +185,20 @@ def write_note(output_path: Path, content: str, check_edit: bool = True) -> bool
     return True
 
 
+def sanitize_filename(name: str) -> str:
+    """Sanitize a string for safe filesystem filenames.
+
+    Replaces disallowed characters and collapses whitespace.
+    """
+    import re
+    # Replace path separators and illegal characters
+    sanitized = re.sub(r"[\\/\0\t\n\r:*?\"<>|]", "_", name)
+    # Collapse whitespace
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    # Truncate overly long filenames
+    return sanitized[:180]
+
+
 def git_commit_and_push(repo_path: Path, commit_message: str) -> None:
     """Commit and push changes to Git.
 

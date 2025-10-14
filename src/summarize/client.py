@@ -4,6 +4,8 @@ import json
 from typing import Any
 
 from anthropic import Anthropic
+import time
+from typing import Callable
 
 from src.config import config
 from src.logging_config import get_logger
@@ -24,6 +26,22 @@ class ClaudeClient:
         self.api_key = api_key or config.anthropic_api_key
         self.default_model = default_model or config.llm_default_model
         self.client = Anthropic(api_key=self.api_key)
+
+    def _with_retries(self, fn: Callable[[], str], *, max_retries: int = 3, backoff_base: int = 2) -> str:
+        """Execute a function with simple retry/backoff for transient errors."""
+        for attempt in range(max_retries + 1):
+            try:
+                return fn()
+            except Exception as e:
+                if attempt == max_retries:
+                    logger.error(f"LLM call failed after {max_retries} retries: {e}")
+                    raise
+                wait = backoff_base * (2**attempt)
+                logger.warning(f"LLM call failed (attempt {attempt+1}/{max_retries}): {e}; retrying in {wait}s")
+                time.sleep(wait)
+
+        # Unreachable
+        raise RuntimeError("Retries exhausted")
 
     def generate(
         self,
@@ -49,25 +67,24 @@ class ClaudeClient:
 
         logger.debug(f"Generating with {model}")
 
-        try:
+        def run_call() -> str:
             response = self.client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=[
-                    {
-                        "type": "text",
-                        "text": system_prompt,
-                        "cache_control": {"type": "ephemeral"},  # Enable prompt caching
-                    }
-                ],
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"},  # Enable prompt caching
+                        }
+                    ],
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
             # Extract text from response
             text = response.content[0].text
 
-            # Log cache usage
+            # Log usage if present
             if hasattr(response, "usage"):
                 usage = response.usage
                 logger.debug(
@@ -76,12 +93,9 @@ class ClaudeClient:
                     f"Cache read: {getattr(usage, 'cache_read_input_tokens', 0)}, "
                     f"Cache creation: {getattr(usage, 'cache_creation_input_tokens', 0)}"
                 )
-
             return text
 
-        except Exception as e:
-            logger.error(f"Claude API call failed: {e}")
-            raise
+        return self._with_retries(run_call)
 
     def generate_json(
         self,
@@ -116,12 +130,13 @@ class ClaudeClient:
             # Try to find JSON in markdown code block
             import re
 
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
             if match:
                 return json.loads(match.group(1))
 
             # Try to find raw JSON object
-            match = re.search(r"(\{.*\})", text, re.DOTALL)
+            # Fallback: greedy outermost braces
+            match = re.search(r"(\{[\s\S]*\})", text)
             if match:
                 return json.loads(match.group(1))
 

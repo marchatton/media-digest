@@ -7,6 +7,7 @@ from typing import Generator
 import feedparser
 
 from src.ingest.models import Episode
+from datetime import datetime, timezone
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -70,22 +71,44 @@ def discover_episodes(feed_url: str, since_date: str | None = None) -> Generator
 
             title = entry.get("title", "Untitled")
 
-            # Parse publish date
-            publish_date = None
+            # Parse publish date (normalize to ISO 8601 UTC)
+            publish_date_iso = None
             if hasattr(entry, "published_parsed") and entry.published_parsed:
                 from time import mktime
-                from datetime import datetime
-                publish_date = datetime.fromtimestamp(mktime(entry.published_parsed)).isoformat()
-            elif hasattr(entry, "published"):
-                publish_date = entry.published
+                publish_dt = datetime.fromtimestamp(mktime(entry.published_parsed), tz=timezone.utc)
+                publish_date_iso = publish_dt.isoformat()
+            elif hasattr(entry, "published") and entry.published:
+                # Best-effort parse string to datetime
+                try:
+                    publish_dt = datetime.fromisoformat(entry.published)
+                    if publish_dt.tzinfo is None:
+                        publish_dt = publish_dt.replace(tzinfo=timezone.utc)
+                    publish_date_iso = publish_dt.isoformat()
+                except Exception:
+                    # Fallback: keep raw string but skip date filtering for safety
+                    publish_date_iso = entry.published
 
-            if not publish_date:
+            if not publish_date_iso:
                 logger.warning(f"Episode missing publish date, skipping: {title}")
                 continue
 
             # Filter by date if specified
-            if since_date and publish_date < since_date:
-                continue
+            if since_date:
+                try:
+                    since_dt = datetime.fromisoformat(since_date)
+                    if since_dt.tzinfo is None:
+                        since_dt = since_dt.replace(tzinfo=timezone.utc)
+                    # Only filter if our publish_date_iso parsed to a datetime
+                    pub_dt = None
+                    try:
+                        pub_dt = datetime.fromisoformat(publish_date_iso)
+                    except Exception:
+                        pub_dt = None
+                    if pub_dt and pub_dt < since_dt:
+                        continue
+                except Exception:
+                    # If since_date is malformed, do not filter
+                    pass
 
             # Extract audio/video URLs
             audio_url = None
@@ -128,7 +151,7 @@ def discover_episodes(feed_url: str, since_date: str | None = None) -> Generator
                 guid=guid,
                 feed_url=feed_url,
                 title=title,
-                publish_date=publish_date,
+                publish_date=publish_date_iso,
                 author=author,
                 audio_url=audio_url,
                 video_url=video_url,

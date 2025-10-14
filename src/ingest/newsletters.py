@@ -20,6 +20,111 @@ logger = get_logger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
 
+def _extract_payload_text(payload: dict) -> tuple[str | None, str | None]:
+    """Extract text/html and text/plain recursively from a Gmail message payload.
+
+    Returns (body_html, body_text).
+    """
+    body_html: str | None = None
+    body_text: str | None = None
+
+    def walk(part: dict):
+        nonlocal body_html, body_text
+        if not part:
+            return
+        mime_type = part.get("mimeType", "")
+        body = part.get("body", {})
+        data = body.get("data")
+        parts = part.get("parts")
+
+        if data and isinstance(data, str):
+            import base64
+            decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+            if mime_type == "text/html" and not body_html:
+                body_html = decoded
+            elif mime_type == "text/plain" and not body_text:
+                body_text = decoded
+        if parts and isinstance(parts, list):
+            for child in parts:
+                walk(child)
+
+    walk(payload)
+    return body_html, body_text
+
+
+def _build_query(labels: list[str], since_date: str | None) -> str:
+    query_parts: list[str] = []
+    if labels:
+        label_query = " OR ".join([f"label:{label}" for label in labels])
+        query_parts.append(f"({label_query})")
+    if since_date:
+        query_parts.append(f"after:{since_date.replace('-', '/')}")
+    return " ".join(query_parts)
+
+
+def discover_newsletters(
+    service,
+    labels: list[str],
+    since_date: str | None = None,
+):
+    """Discover newsletters from Gmail with pagination and robust MIME parsing."""
+    query = _build_query(labels, since_date)
+    logger.info(f"Gmail query: {query}")
+
+    try:
+        messages: list[dict] = []
+        request = service.users().messages().list(userId="me", q=query, maxResults=500)
+        while request is not None:
+            results = request.execute()
+            msgs = results.get("messages", [])
+            messages.extend(msgs)
+            request = service.users().messages().list_next(previous_request=request, previous_response=results)
+
+        logger.info(f"Found {len(messages)} newsletters")
+
+        for msg in messages:
+            msg_id = msg["id"]
+            message = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
+
+            headers = {h["name"]: h["value"] for h in message.get("payload", {}).get("headers", [])}
+            subject = headers.get("Subject", "No Subject")
+            sender = headers.get("From", "Unknown")
+            date_str = headers.get("Date", "")
+            message_id = headers.get("Message-ID", msg_id)
+
+            # Parse date
+            from datetime import datetime
+            try:
+                date_obj = datetime.strptime(date_str.split(" (")[0].strip(), "%a, %d %b %Y %H:%M:%S %z")
+                date_iso = date_obj.isoformat()
+            except Exception:
+                date_iso = date_str
+
+            body_html, body_text = _extract_payload_text(message.get("payload", {}))
+
+            # Try to find web version link (fallback heuristic)
+            link = None
+            if body_html and "http" in body_html:
+                import re
+                match = re.search(r'href="(https?://[^"]+(?:view|browser|web)[^"]*)"', body_html, re.IGNORECASE)
+                if match:
+                    link = match.group(1)
+
+            yield Newsletter(
+                message_id=message_id,
+                subject=subject,
+                sender=sender,
+                date=date_iso,
+                body_html=body_html,
+                body_text=body_text,
+                link=link,
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to discover newsletters: {e}")
+        return
+
+
 def get_gmail_service(token_path: Path, credentials_path: Path | None = None):
     """Get authenticated Gmail API service.
 
@@ -59,107 +164,6 @@ def get_gmail_service(token_path: Path, credentials_path: Path | None = None):
         logger.info(f"Saved OAuth token to {token_path}")
 
     return build("gmail", "v1", credentials=creds)
-
-
-def discover_newsletters(
-    service,
-    labels: list[str],
-    since_date: str | None = None,
-) -> Generator[Newsletter, None, None]:
-    """Discover newsletters from Gmail.
-
-    Args:
-        service: Gmail API service
-        labels: Gmail labels to search
-        since_date: Only return emails after this date (YYYY-MM-DD)
-
-    Yields:
-        Newsletter objects
-    """
-    # Build query
-    query_parts = []
-
-    if labels:
-        label_query = " OR ".join([f"label:{label}" for label in labels])
-        query_parts.append(f"({label_query})")
-
-    if since_date:
-        query_parts.append(f"after:{since_date.replace('-', '/')}")
-
-    query = " ".join(query_parts)
-    logger.info(f"Gmail query: {query}")
-
-    try:
-        # Get message IDs
-        results = service.users().messages().list(userId="me", q=query, maxResults=500).execute()
-        messages = results.get("messages", [])
-
-        logger.info(f"Found {len(messages)} newsletters")
-
-        for msg in messages:
-            msg_id = msg["id"]
-
-            # Get full message
-            message = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
-
-            # Extract headers
-            headers = {h["name"]: h["value"] for h in message["payload"]["headers"]}
-
-            subject = headers.get("Subject", "No Subject")
-            sender = headers.get("From", "Unknown")
-            date_str = headers.get("Date", "")
-            message_id = headers.get("Message-ID", msg_id)
-
-            # Parse date
-            try:
-                date_obj = datetime.strptime(date_str.split(" (")[0].strip(), "%a, %d %b %Y %H:%M:%S %z")
-                date = date_obj.isoformat()
-            except Exception:
-                date = date_str
-
-            # Extract body
-            body_html = None
-            body_text = None
-
-            if "parts" in message["payload"]:
-                for part in message["payload"]["parts"]:
-                    mime_type = part.get("mimeType", "")
-                    if "data" in part["body"]:
-                        data = part["body"]["data"]
-                        decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
-
-                        if mime_type == "text/html":
-                            body_html = decoded
-                        elif mime_type == "text/plain":
-                            body_text = decoded
-            elif "body" in message["payload"] and "data" in message["payload"]["body"]:
-                data = message["payload"]["body"]["data"]
-                decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
-                body_text = decoded
-
-            # Try to find web version link
-            link = None
-            if body_html and "http" in body_html:
-                # Simple heuristic: look for "view in browser" or similar links
-                import re
-                match = re.search(r'href="(https?://[^"]+(?:view|browser|web)[^"]*)"', body_html, re.IGNORECASE)
-                if match:
-                    link = match.group(1)
-
-            newsletter = Newsletter(
-                message_id=message_id,
-                subject=subject,
-                sender=sender,
-                date=date,
-                body_html=body_html,
-                body_text=body_text,
-                link=link,
-            )
-
-            yield newsletter
-
-    except Exception as e:
-        logger.error(f"Failed to discover newsletters: {e}")
 
 
 def discover_all_newsletters(

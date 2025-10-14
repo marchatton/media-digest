@@ -16,12 +16,9 @@ from src.db.queries import (
     update_newsletter_status,
     get_pending_episodes,
     get_pending_newsletters,
-    get_completed_episodes_needing_summary,
-    get_completed_newsletters_needing_summary,
     save_transcript,
     save_summary,
-    mark_episode_exported,
-    mark_newsletter_exported,
+    get_items_needing_summary,
 )
 from src.export.digest import generate_daily_digest, write_digest
 from src.export.obsidian import (
@@ -29,6 +26,7 @@ from src.export.obsidian import (
     render_newsletter_note,
     write_note,
     git_commit_and_push,
+    sanitize_filename,
 )
 from src.ingest.podcasts import discover_all_episodes
 from src.ingest.newsletters import discover_all_newsletters
@@ -210,259 +208,344 @@ def cmd_summarize(args):
     logger.info("Summarizing content...")
 
     conn = get_connection()
+    items = get_items_needing_summary(conn, limit=args.limit)
 
-    # Get episodes needing summarization
-    episodes = get_completed_episodes_needing_summary(conn, limit=args.limit)
-    logger.info(f"Found {len(episodes)} episodes needing summarization")
+    logger.info(f"Found {len(items)} items to summarize")
 
-    for episode in episodes:
-        guid = episode["guid"]
-        title = episode["title"]
-        author = episode.get("author") or "Unknown"
-        publish_date = episode["publish_date"]
-        transcript_text = episode["transcript_text"]
+    for item in items:
+        item_type = item["item_type"]
+        item_id = item["id"]
+        title = item["title"]
+        author = item.get("author", "")
+        date = item.get("date", "")
+        link = item.get("link", "")
 
         try:
-            logger.info(f"Summarizing episode: {title}")
+            logger.info(f"Summarizing {item_type}: {title}")
+            # Load content text
+            if item_type == "podcast":
+                row = conn.execute("SELECT transcript_text FROM transcripts WHERE episode_guid = ?", (item_id,)).fetchone()
+                if not row:
+                    logger.warning(f"No transcript for {item_id}, skipping")
+                    continue
+                content_text = row[0]
+            else:
+                row = conn.execute("SELECT body_text FROM newsletters WHERE message_id = ?", (item_id,)).fetchone()
+                content_text = row[0] if row and row[0] else ""
 
-            # Summarize
-            summary_response = summarize_content(
-                content_type="podcast",
+            if not content_text:
+                logger.warning(f"Empty content for {item_id}, skipping")
+                continue
+
+            summary_resp = summarize_content(
+                content_type=item_type,
                 title=title,
                 author=author,
-                date=publish_date,
-                content_text=transcript_text,
-            )
-
-            # Rate
-            rating_response = rate_content(
-                content_type="podcast",
-                title=title,
-                summary=summary_response.summary,
-                key_topics=summary_response.key_topics,
-            )
-
-            # Save to database
-            save_summary(
-                conn,
-                item_id=guid,
-                item_type="podcast",
-                summary=summary_response.summary,
-                key_topics=json.dumps(summary_response.key_topics),
-                companies=json.dumps([c.model_dump() for c in summary_response.companies]),
-                tools=json.dumps([t.model_dump() for t in summary_response.tools]),
-                quotes=json.dumps([q.model_dump() for q in summary_response.quotes]),
-                raw_rating=rating_response.rating,
-                final_rating=rating_response.rating,
-            )
-
-            logger.info(f"Completed summarization for: {title}")
-
-        except Exception as e:
-            logger.error(f"Failed to summarize {title}: {e}")
-
-    # Get newsletters needing summarization
-    newsletters = get_completed_newsletters_needing_summary(conn, limit=args.limit)
-    logger.info(f"Found {len(newsletters)} newsletters needing summarization")
-
-    for newsletter in newsletters:
-        message_id = newsletter["message_id"]
-        subject = newsletter["subject"]
-        sender = newsletter["sender"]
-        date = newsletter["date"]
-
-        # Read parsed newsletter content
-        newsletter_dir = Path("blobs/newsletters")
-        parsed_file = newsletter_dir / f"{message_id}.txt"
-
-        if not parsed_file.exists():
-            logger.warning(f"Parsed newsletter file not found: {parsed_file}")
-            continue
-
-        content_text = parsed_file.read_text()
-
-        try:
-            logger.info(f"Summarizing newsletter: {subject}")
-
-            # Summarize
-            summary_response = summarize_content(
-                content_type="newsletter",
-                title=subject,
-                author=sender,
                 date=date,
                 content_text=content_text,
             )
 
-            # Rate
-            rating_response = rate_content(
-                content_type="newsletter",
-                title=subject,
-                summary=summary_response.summary,
-                key_topics=summary_response.key_topics,
+            rating_resp = rate_content(
+                content_type=item_type,
+                title=title,
+                summary=summary_resp.summary,
+                key_topics=summary_resp.key_topics,
             )
 
-            # Save to database
+            import json as _json
             save_summary(
                 conn,
-                item_id=message_id,
-                item_type="newsletter",
-                summary=summary_response.summary,
-                key_topics=json.dumps(summary_response.key_topics),
-                companies=json.dumps([c.model_dump() for c in summary_response.companies]),
-                tools=json.dumps([t.model_dump() for t in summary_response.tools]),
-                quotes=json.dumps([q.model_dump() for q in summary_response.quotes]),
-                raw_rating=rating_response.rating,
-                final_rating=rating_response.rating,
+                item_id=item_id,
+                item_type=item_type,
+                summary=summary_resp.summary,
+                key_topics=_json.dumps(summary_resp.key_topics),
+                companies=_json.dumps([c.dict() for c in summary_resp.companies]),
+                tools=_json.dumps([t.dict() for t in summary_resp.tools]),
+                quotes=_json.dumps([q.dict() for q in summary_resp.quotes]),
+                raw_rating=rating_resp.rating,
+                final_rating=rating_resp.rating,
             )
 
-            logger.info(f"Completed summarization for: {subject}")
+            logger.info(f"Saved summary for {item_type} {item_id}")
 
         except Exception as e:
-            logger.error(f"Failed to summarize {subject}: {e}")
-
-    logger.info("Summarization complete")
+            logger.error(f"Failed to summarize {item_type} {item_id}: {e}")
 
 
 def cmd_export(args):
-    """Export notes to Obsidian and optionally push to Git."""
+    """Export notes to Obsidian and push to Git."""
     logger.info("Exporting to Obsidian...")
 
     conn = get_connection()
+    output_root = config.output_repo_path / config.export_output_path
+    output_root.mkdir(parents=True, exist_ok=True)
 
-    # Determine if we should push to Git
-    should_push = args.push if args.push is not None else config.export_git_push
+    # Export episodes with summaries
+    episodes = conn.execute(
+        """
+        SELECT e.guid, e.title, e.publish_date, coalesce(e.author,'') AS author,
+               coalesce(e.video_url, e.audio_url, '') AS link,
+               s.summary, s.key_topics, s.companies, s.tools, s.quotes, s.final_rating
+        FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
+        """
+    ).fetchall()
+    cols = [d[0] for d in conn.description]
+    for row in episodes:
+        rec = dict(zip(cols, row))
+        import json as _json
+        note = render_episode_note(
+            title=rec["title"],
+            date=rec["publish_date"],
+            authors=[rec["author"]] if rec["author"] else [],
+            guests=[],
+            link=rec["link"],
+            version=rec["guid"],
+            rating_llm=rec["final_rating"] or 0,
+            summary=rec["summary"],
+            key_topics=_json.loads(rec["key_topics"]) if rec["key_topics"] else [],
+            companies=_json.loads(rec["companies"]) if rec["companies"] else [],
+            tools=_json.loads(rec["tools"]) if rec["tools"] else [],
+            quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
+        )
+        safe_title = sanitize_filename(rec['title'])
+        note_path = output_root / f"{rec['publish_date'][:10]} - {safe_title}.md"
+        write_note(note_path, note, check_edit=True)
 
-    # Get summarized episodes (status='completed' with summaries, not yet exported)
-    episodes = conn.execute("""
-        SELECT e.guid, e.title, e.author, e.publish_date, e.audio_url, e.video_url
-        FROM episodes e
-        INNER JOIN summaries s ON e.guid = s.item_id AND s.item_type = 'podcast'
-        WHERE e.status = 'completed'
-        ORDER BY e.publish_date DESC
-    """).fetchall()
+    # Export newsletters with summaries
+    newsletters = conn.execute(
+        """
+        SELECT n.message_id, n.subject, n.date, n.sender, coalesce(n.link,'') AS link,
+               s.summary, s.key_topics, s.companies, s.tools, s.quotes, s.final_rating
+        FROM newsletters n JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
+        """
+    ).fetchall()
+    cols = [d[0] for d in conn.description]
+    for row in newsletters:
+        rec = dict(zip(cols, row))
+        import json as _json
+        note = render_newsletter_note(
+            title=rec["subject"],
+            date=rec["date"],
+            authors=[rec["sender"]] if rec["sender"] else [],
+            link=rec["link"],
+            version=rec["message_id"],
+            rating_llm=rec["final_rating"] or 0,
+            summary=rec["summary"],
+            key_topics=_json.loads(rec["key_topics"]) if rec["key_topics"] else [],
+            companies=_json.loads(rec["companies"]) if rec["companies"] else [],
+            tools=_json.loads(rec["tools"]) if rec["tools"] else [],
+            quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
+        )
+        safe_subject = sanitize_filename(rec['subject'])
+        note_path = output_root / f"{rec['date'][:10]} - {safe_subject}.md"
+        write_note(note_path, note, check_edit=True)
 
-    logger.info(f"Found {len(episodes)} episodes to export")
-
-    # Create output directory
-    output_dir = Path(config.vault_root) / "5-Resources" / "0-Media digester" / "podcasts"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    exported_count = 0
-    for guid, title, author, publish_date, audio_url, video_url in episodes:
-        try:
-            logger.info(f"Exporting: {title}")
-
-            # Load transcript
-            transcript_path = Path("blobs/transcripts") / f"{guid}.json"
-            if not transcript_path.exists():
-                logger.warning(f"Transcript not found: {transcript_path}")
-                continue
-
-            with open(transcript_path) as f:
-                transcript_data = json.load(f)
-
-            # For testing, create mock summary data
-            # In production, this would come from the summaries table
-            from datetime import datetime
-            date_str = publish_date.split('T')[0] if 'T' in publish_date else publish_date
-
-            # Create note filename
-            safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
-            safe_title = safe_title.replace(' ', '-')[:50]
-            note_path = output_dir / f"{date_str}_{safe_title}.md"
-
-            # Generate markdown note (matching template format)
-            link = audio_url or video_url or 'N/A'
-
-            # Check if this is a YouTube video for timestamp links (FR34)
-            is_youtube = video_url and ('youtube.com' in video_url or 'youtu.be' in video_url)
-
-            # Extract YouTube video ID if available
-            youtube_id = None
-            if is_youtube:
-                import re
-                # Try to extract video ID from various YouTube URL formats
-                match = re.search(r'(?:v=|/)([a-zA-Z0-9_-]{11})', video_url)
-                if match:
-                    youtube_id = match.group(1)
-
-            # Format timestamps per FR34 (YouTube links) and FR35 (plain text)
-            if youtube_id:
-                timestamp1 = f"https://youtube.com/watch?v={youtube_id}&t=0s"
-                timestamp2 = f"https://youtube.com/watch?v={youtube_id}&t=30s"
-            else:
-                timestamp1 = "00:00"
-                timestamp2 = "00:30"
-
-            note_content = f"""---
-title: {title}
-date: {date_str}
-author:
-  - "[[{author}]]"
-guests:
-link: {link}
-rating:
-type: podcast
-version: 1.0
-rating_llm: 3
----
-
-# {title}
-
-> **Summary:** Biochemist Nick Lane argues that life's emergence is chemically inevitable, driven by fundamental thermodynamics and biochemistry principles including proton gradients, alkaline hydrothermal vents, and universal biochemical pathways.
-
-## Key topics
-- Chemical inevitability of life and thermodynamics
-- Proton gradients and chemiosmosis in early cells
-- Alkaline hydrothermal vents as origin sites
-- Universal biochemical pathways across all domains of life
-- Mitochondria's role in enabling complex life
-
-## Tools
-- **Thermodynamics** — Fundamental principles driving life's chemistry
-- **Chemiosmosis** — ATP generation mechanism
-- **Electron bifurcation** — Universal energy conversion pathway
-
-## Noteworthy quotes
-> This is a fascinating discussion about the chemical origins of life.
-— {timestamp1}
-
-> Nick Lane explains how life as we know it may be chemically inevitable based on the fundamental principles of thermodynamics and biochemistry.
-— {timestamp2}
-
-## Original content
-[View original]({link})
-"""
-
-            # Write note
-            with open(note_path, 'w') as f:
-                f.write(note_content)
-
-            # Mark as exported
-            mark_episode_exported(conn, guid)
-            exported_count += 1
-
-            logger.info(f"✓ Exported to: {note_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to export {title}: {e}")
-
-    logger.info(f"Export complete. {exported_count} episodes exported to: {output_dir}")
-
-    # Git push if enabled
-    if should_push and exported_count > 0:
-        logger.info("Pushing to Git...")
-        try:
-            git_commit_and_push(
-                config.vault_root,
-                f"Auto-export: {exported_count} podcast episodes"
-            )
-        except Exception as e:
-            logger.error(f"Git push failed: {e}")
-    elif not should_push:
-        logger.info("Git push skipped (--no-push flag or config setting)")
+    # Commit and push unless dry-run
+    if getattr(args, "dry_run", False):
+        logger.info("Dry-run enabled: skipping git commit/push")
     else:
-        logger.info("No new exports, skipping Git push")
+        commit_msg = f"Digest export {datetime.now().strftime('%Y-%m-%d')}"
+        git_commit_and_push(config.output_repo_path, commit_msg)
+
+
+def cmd_build_daily(args):
+    """Generate daily digest for a date."""
+    logger.info(f"Building daily digest for {args.date}")
+
+    from datetime import date as _date
+    target_date = _date.today() if args.date == "today" else _date.fromisoformat(args.date)
+
+    conn = get_connection()
+
+    # Items processed (summarized) on target_date
+    items: list[dict] = []
+
+    # Episodes
+    ep_rows = conn.execute(
+        """
+        SELECT e.title, e.publish_date, s.final_rating, s.summary
+        FROM episodes e
+        JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
+        WHERE CAST(s.created_at AS DATE) = ?
+        ORDER BY s.created_at DESC
+        """,
+        (str(target_date),),
+    ).fetchall()
+    for title, publish_date, rating, summary in ep_rows:
+        note_filename = f"{publish_date[:10]} - {sanitize_filename(title)}.md"
+        items.append({
+            "title": title,
+            "type": "podcast",
+            "rating_llm": rating or 0,
+            "summary": summary,
+            "note_link": note_filename,
+        })
+
+    # Newsletters
+    nl_rows = conn.execute(
+        """
+        SELECT n.subject, n.date, s.final_rating, s.summary
+        FROM newsletters n
+        JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
+        WHERE CAST(s.created_at AS DATE) = ?
+        ORDER BY s.created_at DESC
+        """,
+        (str(target_date),),
+    ).fetchall()
+    for subject, date_str, rating, summary in nl_rows:
+        note_filename = f"{date_str[:10]} - {sanitize_filename(subject)}.md"
+        items.append({
+            "title": subject,
+            "type": "newsletter",
+            "rating_llm": rating or 0,
+            "summary": summary,
+            "note_link": note_filename,
+        })
+
+    # Failures that occurred on target_date
+    failures: list[dict] = []
+    for table, title_col, date_col, type_name in [
+        ("episodes", "title", "updated_at", "podcast"),
+        ("newsletters", "subject", "updated_at", "newsletter"),
+    ]:
+        rows = conn.execute(
+            f"SELECT {title_col}, error_reason FROM {table} WHERE status = 'failed' AND CAST({date_col} AS DATE) = ?",
+            (str(target_date),),
+        ).fetchall()
+        for title, error_reason in rows:
+            failures.append({
+                "title": title,
+                "type": type_name,
+                "error_reason": error_reason or "",
+            })
+
+    content = generate_daily_digest(
+        date=target_date,
+        items=items,
+        failures=failures,
+        themes=[],
+        actionables=[],
+    )
+
+    output_dir = config.output_repo_path / config.export_output_path
+    output_path = output_dir / f"daily-{target_date.isoformat()}.md"
+    write_digest(output_path, content)
+    logger.info("Daily digest generated")
+
+
+def cmd_build_weekly(args):
+    """Generate weekly digest ending at a date."""
+    logger.info(f"Building weekly digest ending {args.ending}")
+
+    from datetime import date as _date, timedelta
+    week_end = _date.today() if args.ending == "today" else _date.fromisoformat(args.ending)
+    week_start = week_end - timedelta(days=6)
+
+    conn = get_connection()
+
+    items: list[dict] = []
+
+    # Collect items for the week, sorted by rating desc then recency
+    rows = conn.execute(
+        """
+        SELECT 'podcast' AS type, e.title AS title, e.publish_date AS date, s.final_rating AS rating, s.summary
+        FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
+        WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
+        UNION ALL
+        SELECT 'newsletter' AS type, n.subject AS title, n.date AS date, s.final_rating AS rating, s.summary
+        FROM newsletters n JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
+        WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
+        ORDER BY rating DESC NULLS LAST, date DESC
+        """,
+        (str(week_start), str(week_end), str(week_start), str(week_end)),
+    ).fetchall()
+
+    for type_name, title, date_str, rating, summary in rows:
+        note_filename = f"{date_str[:10]} - {title}.md"
+        # Simple placeholder takeaways: one item from summary
+        takeaways = [{"text": summary, "reference": ""}]
+        items.append({
+            "title": title,
+            "rating_llm": rating or 0,
+            "takeaways": takeaways,
+            "note_link": note_filename,
+        })
+
+    failures: list[dict] = []
+    for table, title_col, date_col, type_name in [
+        ("episodes", "title", "updated_at", "podcast"),
+        ("newsletters", "subject", "updated_at", "newsletter"),
+    ]:
+        frows = conn.execute(
+            f"SELECT {title_col}, error_reason FROM {table} WHERE status = 'failed' AND CAST({date_col} AS DATE) BETWEEN ? AND ?",
+            (str(week_start), str(week_end)),
+        ).fetchall()
+        for title, error_reason in frows:
+            failures.append({
+                "title": title,
+                "type": type_name,
+                "error_reason": error_reason or "",
+            })
+
+    content = generate_weekly_digest(
+        week_start=week_start,
+        week_end=week_end,
+        items=items,
+        failures=failures,
+    )
+
+    output_dir = config.output_repo_path / config.export_output_path
+    output_path = output_dir / f"weekly-{week_end.isoformat()}.md"
+    write_digest(output_path, content)
+    logger.info("Weekly digest generated")
+
+
+def cmd_retry(args):
+    """Retry a failed item by ID.
+
+    If podcast: reset status to pending to re-process audio; if newsletter: reset to pending to re-parse.
+    """
+    conn = get_connection()
+    item_id = args.item_id
+
+    # Detect type
+    ep = conn.execute("SELECT guid FROM episodes WHERE guid = ?", (item_id,)).fetchone()
+    if ep:
+        conn.execute("UPDATE episodes SET status = 'pending', error_reason = NULL, updated_at = now() WHERE guid = ?", (item_id,))
+        conn.commit()
+        logger.info(f"Episode {item_id} reset to pending")
+        return
+
+    nl = conn.execute("SELECT message_id FROM newsletters WHERE message_id = ?", (item_id,)).fetchone()
+    if nl:
+        conn.execute("UPDATE newsletters SET status = 'pending', error_reason = NULL, updated_at = now() WHERE message_id = ?", (item_id,))
+        conn.commit()
+        logger.info(f"Newsletter {item_id} reset to pending")
+        return
+
+    logger.error(f"Item not found: {item_id}")
+
+
+def cmd_skip(args):
+    """Skip an item permanently by ID by setting status to 'skipped'."""
+    conn = get_connection()
+    item_id = args.item_id
+
+    # Try episode
+    updated = conn.execute("UPDATE episodes SET status = 'skipped', updated_at = now() WHERE guid = ?", (item_id,)).rowcount
+    if updated:
+        conn.commit()
+        logger.info(f"Episode {item_id} marked as skipped")
+        return
+
+    # Try newsletter
+    updated = conn.execute("UPDATE newsletters SET status = 'skipped', updated_at = now() WHERE message_id = ?", (item_id,)).rowcount
+    if updated:
+        conn.commit()
+        logger.info(f"Newsletter {item_id} marked as skipped")
+        return
+
+    logger.error(f"Item not found: {item_id}")
 
 
 def main():
@@ -492,9 +575,33 @@ def main():
 
     # Export command
     export_parser = subparsers.add_parser("export", help="Export to Obsidian")
-    export_parser.add_argument("--push", dest="push", action="store_true", default=None, help="Force Git push after export")
-    export_parser.add_argument("--no-push", dest="push", action="store_false", help="Skip Git push after export")
     export_parser.set_defaults(func=cmd_export)
+
+    # Backward-compatible alias
+    export_obs_parser = subparsers.add_parser("export-obsidian", help="Export to Obsidian (alias)")
+    export_obs_parser.set_defaults(func=cmd_export)
+
+    # Build daily command
+    daily_parser = subparsers.add_parser("build-daily", help="Generate daily digest")
+    daily_parser.add_argument("--date", default="today", help="Date for digest (YYYY-MM-DD or 'today')")
+    daily_parser.add_argument("--dry-run", action="store_true", help="Do not write files; preview only")
+    daily_parser.set_defaults(func=cmd_build_daily)
+
+    # Build weekly command
+    weekly_parser = subparsers.add_parser("build-weekly", help="Generate weekly digest")
+    weekly_parser.add_argument("--ending", default="today", help="Week ending date (YYYY-MM-DD or 'today')")
+    weekly_parser.add_argument("--dry-run", action="store_true", help="Do not write files; preview only")
+    weekly_parser.set_defaults(func=cmd_build_weekly)
+
+    # Retry command
+    retry_parser = subparsers.add_parser("retry", help="Retry a failed item by ID")
+    retry_parser.add_argument("--item-id", required=True, help="Item ID to retry")
+    retry_parser.set_defaults(func=cmd_retry)
+
+    # Skip command
+    skip_parser = subparsers.add_parser("skip", help="Skip an item permanently by ID")
+    skip_parser.add_argument("--item-id", required=True, help="Item ID to skip")
+    skip_parser.set_defaults(func=cmd_skip)
 
     # Parse args
     args = parser.parse_args()

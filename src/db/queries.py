@@ -145,9 +145,8 @@ def get_pending_episodes(conn, limit: int | None = None) -> list[dict[str, Any]]
     if limit:
         query += f" LIMIT {limit}"
 
-    cursor = conn.execute(query)
-    result = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
+    result = conn.execute(query).fetchall()
+    columns = [desc[0] for desc in conn.description]
     return [dict(zip(columns, row)) for row in result]
 
 
@@ -165,9 +164,8 @@ def get_pending_newsletters(conn, limit: int | None = None) -> list[dict[str, An
     if limit:
         query += f" LIMIT {limit}"
 
-    cursor = conn.execute(query)
-    result = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
+    result = conn.execute(query).fetchall()
+    columns = [desc[0] for desc in conn.description]
     return [dict(zip(columns, row)) for row in result]
 
 
@@ -192,59 +190,6 @@ def save_transcript(conn, episode_guid: str, transcript_text: str, transcript_pa
     )
     conn.commit()
     logger.debug(f"Saved transcript for episode {episode_guid}")
-
-
-def get_completed_episodes_needing_summary(conn, limit: int | None = None) -> list[dict[str, Any]]:
-    """Get completed episodes that don't have summaries yet.
-
-    Args:
-        conn: Database connection
-        limit: Max number of episodes to return
-
-    Returns:
-        List of episode records with transcript info
-    """
-    query = """
-        SELECT e.*, t.transcript_text, t.transcript_path
-        FROM episodes e
-        INNER JOIN transcripts t ON e.guid = t.episode_guid
-        LEFT JOIN summaries s ON e.guid = s.item_id AND s.item_type = 'podcast'
-        WHERE e.status = 'completed' AND s.item_id IS NULL
-        ORDER BY e.publish_date DESC
-    """
-    if limit:
-        query += f" LIMIT {limit}"
-
-    cursor = conn.execute(query)
-    result = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    return [dict(zip(columns, row)) for row in result]
-
-
-def get_completed_newsletters_needing_summary(conn, limit: int | None = None) -> list[dict[str, Any]]:
-    """Get completed newsletters that don't have summaries yet.
-
-    Args:
-        conn: Database connection
-        limit: Max number of newsletters to return
-
-    Returns:
-        List of newsletter records
-    """
-    query = """
-        SELECT n.*
-        FROM newsletters n
-        LEFT JOIN summaries s ON n.message_id = s.item_id AND s.item_type = 'newsletter'
-        WHERE n.status = 'completed' AND s.item_id IS NULL
-        ORDER BY n.date DESC
-    """
-    if limit:
-        query += f" LIMIT {limit}"
-
-    cursor = conn.execute(query)
-    result = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    return [dict(zip(columns, row)) for row in result]
 
 
 def save_summary(
@@ -292,39 +237,31 @@ def save_summary(
     logger.debug(f"Saved summary for {item_type} {item_id}")
 
 
-def mark_episode_exported(conn, guid: str) -> None:
-    """Mark episode as exported.
+def get_items_needing_summary(conn, limit: int | None = None) -> list[dict[str, Any]]:
+    """Return processed items (episodes/newsletters) that lack entries in summaries.
 
-    Args:
-        conn: Database connection
-        guid: Episode GUID
+    Returns rows with a unified shape: {item_type, id, title, date, author, link?, text_source}
     """
-    conn.execute(
-        """
-        UPDATE episodes
-        SET status = 'exported', exported_at = now(), updated_at = now()
-        WHERE guid = ?
-        """,
-        (guid,),
+    # Episodes completed without summary
+    episodes_query = (
+        "SELECT 'podcast' AS item_type, e.guid AS id, e.title, e.publish_date AS date, coalesce(e.author, '') AS author, "
+        "coalesce(e.video_url, e.audio_url, '') AS link "
+        "FROM episodes e LEFT JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast' "
+        "WHERE e.status = 'completed' AND s.item_id IS NULL"
     )
-    conn.commit()
-    logger.debug(f"Marked episode {guid} as exported")
 
-
-def mark_newsletter_exported(conn, message_id: str) -> None:
-    """Mark newsletter as exported.
-
-    Args:
-        conn: Database connection
-        message_id: Newsletter message ID
-    """
-    conn.execute(
-        """
-        UPDATE newsletters
-        SET status = 'exported', exported_at = now(), updated_at = now()
-        WHERE message_id = ?
-        """,
-        (message_id,),
+    # Newsletters completed without summary
+    newsletters_query = (
+        "SELECT 'newsletter' AS item_type, n.message_id AS id, n.subject AS title, n.date AS date, n.sender AS author, "
+        "coalesce(n.link, '') AS link "
+        "FROM newsletters n LEFT JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter' "
+        "WHERE n.status = 'completed' AND s.item_id IS NULL"
     )
-    conn.commit()
-    logger.debug(f"Marked newsletter {message_id} as exported")
+
+    union_query = f"{episodes_query} UNION ALL {newsletters_query} ORDER BY date DESC"
+    if limit:
+        union_query += f" LIMIT {limit}"
+
+    result = conn.execute(union_query).fetchall()
+    columns = [desc[0] for desc in conn.description]
+    return [dict(zip(columns, row)) for row in result]

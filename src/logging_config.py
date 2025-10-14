@@ -2,6 +2,7 @@
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 
@@ -22,8 +23,8 @@ def setup_logging(log_file: str = "logs/digest.log", level: int = logging.INFO) 
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    # File handler
-    file_handler = logging.FileHandler(log_file)
+    # File handler with rotation
+    file_handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3)
     file_handler.setLevel(level)
     file_handler.setFormatter(formatter)
 
