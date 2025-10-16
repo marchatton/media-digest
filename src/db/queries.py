@@ -131,42 +131,27 @@ def update_newsletter_status(conn, message_id: str, status: str, error_reason: s
     logger.debug(f"Updated newsletter {message_id} status to {status}")
 
 
-def get_pending_episodes(conn, limit: int | None = None) -> list[dict[str, Any]]:
-    """Get episodes with pending status.
+def _get_pending_items(conn, table: str, order_column: str, limit: int | None) -> list[dict[str, Any]]:
+    """Fetch pending rows from the given table ordered by the provided column."""
+    query = f"SELECT * FROM {table} WHERE status = 'pending' ORDER BY {order_column} DESC"
+    params: tuple[Any, ...] = ()
+    if limit is not None:
+        query += " LIMIT ?"
+        params = (limit,)
 
-    Args:
-        conn: Database connection
-        limit: Max number of episodes to return
-
-    Returns:
-        List of episode records
-    """
-    query = "SELECT * FROM episodes WHERE status = 'pending' ORDER BY publish_date DESC"
-    if limit:
-        query += f" LIMIT {limit}"
-
-    result = conn.execute(query).fetchall()
+    result = conn.execute(query, params).fetchall()
     columns = [desc[0] for desc in conn.description]
     return [dict(zip(columns, row)) for row in result]
+
+
+def get_pending_episodes(conn, limit: int | None = None) -> list[dict[str, Any]]:
+    """Get episodes with pending status."""
+    return _get_pending_items(conn, "episodes", "publish_date", limit)
 
 
 def get_pending_newsletters(conn, limit: int | None = None) -> list[dict[str, Any]]:
-    """Get newsletters with pending status.
-
-    Args:
-        conn: Database connection
-        limit: Max number of newsletters to return
-
-    Returns:
-        List of newsletter records
-    """
-    query = "SELECT * FROM newsletters WHERE status = 'pending' ORDER BY date DESC"
-    if limit:
-        query += f" LIMIT {limit}"
-
-    result = conn.execute(query).fetchall()
-    columns = [desc[0] for desc in conn.description]
-    return [dict(zip(columns, row)) for row in result]
+    """Get newsletters with pending status."""
+    return _get_pending_items(conn, "newsletters", "date", limit)
 
 
 def save_transcript(conn, episode_guid: str, transcript_text: str, transcript_path: str) -> None:

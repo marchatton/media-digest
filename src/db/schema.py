@@ -36,8 +36,7 @@ CREATE TABLE IF NOT EXISTS newsletters (
 
 CREATE_TRANSCRIPTS_TABLE = """
 CREATE TABLE IF NOT EXISTS transcripts (
-    id INTEGER PRIMARY KEY,
-    episode_guid TEXT UNIQUE NOT NULL,
+    episode_guid TEXT PRIMARY KEY,
     transcript_text TEXT NOT NULL,
     transcript_path TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT (now()),
@@ -47,8 +46,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
 
 CREATE_SUMMARIES_TABLE = """
 CREATE TABLE IF NOT EXISTS summaries (
-    id INTEGER PRIMARY KEY,
-    item_id TEXT UNIQUE NOT NULL,
+    item_id TEXT PRIMARY KEY,
     item_type TEXT NOT NULL,
     summary TEXT NOT NULL,
     key_topics TEXT,

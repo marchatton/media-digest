@@ -2,8 +2,10 @@
 
 import re
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from src.export.renderer import get_renderer
 from src.logging_config import get_logger
@@ -29,14 +31,15 @@ def check_manual_edit(note_path: Path) -> bool:
     try:
         content = note_path.read_text()
 
-        # Check if rating field is filled (not empty and not just whitespace)
-        # Use [^\n] to match only characters on the same line
-        match = re.search(r"^rating:\s*([^\n]+)$", content, re.MULTILINE | re.IGNORECASE)
-        if match:
-            rating_value = match.group(1).strip()
-            if rating_value:  # Not empty
+        for line in content.splitlines():
+            if not line.lower().startswith("rating:"):
+                continue
+
+            rating_value = line.partition(":")[2].strip()
+            if rating_value:
                 logger.info(f"Note has manual edit (rating filled): {note_path.name}")
                 return True
+            break
 
     except Exception as e:
         logger.warning(f"Failed to check manual edit: {e}")
@@ -44,120 +47,98 @@ def check_manual_edit(note_path: Path) -> bool:
     return False
 
 
-def render_episode_note(
-    title: str,
-    date: str,
-    authors: list[str],
-    guests: list[str],
+@dataclass(frozen=True)
+class NoteContext:
+    """Structured data required to render a note."""
+
+    title: str
+    date: str
+    authors: list[str]
+    link: str
+    version: str
+    rating_llm: int
+    summary: str
+    key_topics: list[str]
+    companies: list[dict]
+    tools: list[dict]
+    quotes: list[dict]
+    guests: list[str] | None = None
+
+
+def _payload_from_context(context: NoteContext) -> dict[str, Any]:
+    """Build the shared context fragment from a note context."""
+    return {
+        "title": context.title,
+        "date": context.date,
+        "authors": list(context.authors),
+        "version": context.version,
+        "rating_llm": context.rating_llm,
+        "summary": context.summary,
+        "key_topics": list(context.key_topics),
+        "companies": list(context.companies),
+        "tools": list(context.tools),
+    }
+
+
+def _render_note(
+    template_name: str,
+    *,
+    note_type: str,
     link: str,
-    version: str,
-    rating_llm: int,
-    summary: str,
-    key_topics: list[str],
-    companies: list[dict],
-    tools: list[dict],
+    payload: dict[str, Any],
     quotes: list[dict],
+    extra_context: dict[str, Any] | None = None,
+    transform_quotes: bool = False,
 ) -> str:
-    """Render episode note from template.
-
-    Args:
-        title: Episode title
-        date: Publication date
-        authors: List of authors/hosts
-        guests: List of guests
-        link: Episode URL
-        version: Episode GUID
-        rating_llm: LLM rating
-        summary: Summary text
-        key_topics: List of key topics
-        companies: List of company dicts
-        tools: List of tool dicts
-        quotes: List of quote dicts with timestamp and text
-
-    Returns:
-        Rendered note content
-    """
+    """Render a note template with shared structure."""
     renderer = get_renderer()
 
-    # Format quotes with timestamp links
-    formatted_quotes = []
-    for quote in quotes:
-        timestamp = quote.get("timestamp", "")
-        text = quote.get("text", "")
+    formatted_quotes: list[dict] = []
+    if transform_quotes:
+        for quote in quotes:
+            timestamp = quote.get("timestamp", "")
+            text = quote.get("text", "")
+            timestamp_link = format_timestamp_link(link, timestamp)
+            formatted_quotes.append({"text": text, "timestamp_link": timestamp_link})
+    else:
+        formatted_quotes = [dict(q) for q in quotes]
 
-        # Generate timestamp link
-        timestamp_link = format_timestamp_link(link, timestamp)
-
-        formatted_quotes.append({"text": text, "timestamp_link": timestamp_link})
-
-    context = {
-        "title": title,
-        "date": date,
-        "authors": authors,
-        "guests": guests,
+    context: dict[str, Any] = {
+        **payload,
         "link": link,
-        "type": "podcast",
-        "version": version,
-        "rating_llm": rating_llm,
-        "summary": summary,
-        "key_topics": key_topics,
-        "companies": companies,
-        "tools": tools,
+        "type": note_type,
         "quotes": formatted_quotes,
     }
 
-    return renderer.render("episode.md.j2", context)
+    if extra_context:
+        context.update(extra_context)
+
+    return renderer.render(template_name, context)
 
 
-def render_newsletter_note(
-    title: str,
-    date: str,
-    authors: list[str],
-    link: str,
-    version: str,
-    rating_llm: int,
-    summary: str,
-    key_topics: list[str],
-    companies: list[dict],
-    tools: list[dict],
-    quotes: list[dict],
+def render_note(
+    context: NoteContext,
+    *,
+    template_name: str,
+    note_type: str,
+    transform_quotes: bool = False,
 ) -> str:
-    """Render newsletter note from template.
+    """Render a note for the provided context."""
+    payload = _payload_from_context(context)
 
-    Args:
-        title: Newsletter subject
-        date: Publication date
-        authors: List of authors (senders)
-        link: Web version link or Gmail link
-        version: Message ID
-        rating_llm: LLM rating
-        summary: Summary text
-        key_topics: List of key topics
-        companies: List of company dicts
-        tools: List of tool dicts
-        quotes: List of quote dicts
+    extra_context: dict[str, Any] | None = None
+    if context.guests:
+        extra_context = {"guests": list(context.guests)}
 
-    Returns:
-        Rendered note content
-    """
-    renderer = get_renderer()
-
-    context = {
-        "title": title,
-        "date": date,
-        "authors": authors,
-        "link": link,
-        "type": "newsletter",
-        "version": version,
-        "rating_llm": rating_llm,
-        "summary": summary,
-        "key_topics": key_topics,
-        "companies": companies,
-        "tools": tools,
-        "quotes": quotes,
-    }
-
-    return renderer.render("newsletter.md.j2", context)
+    return _render_note(
+        template_name,
+        note_type=note_type,
+        link=context.link,
+        payload=payload,
+        quotes=context.quotes,
+        extra_context=extra_context,
+        transform_quotes=transform_quotes,
+    )
 
 
 def write_note(output_path: Path, content: str, check_edit: bool = True) -> bool:

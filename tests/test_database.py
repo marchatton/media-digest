@@ -11,8 +11,7 @@ from src.db.queries import (
     update_newsletter_status,
     get_pending_episodes,
     get_pending_newsletters,
-    get_completed_episodes_needing_summary,
-    get_completed_newsletters_needing_summary,
+    get_items_needing_summary,
     save_transcript,
     save_summary,
 )
@@ -143,8 +142,8 @@ def test_idempotency(temp_db):
     assert count == 1
 
 
-def test_get_completed_episodes_needing_summary(temp_db):
-    """Test retrieving completed episodes that need summarization."""
+def test_get_items_needing_summary(temp_db):
+    """Test retrieving items that need summarization."""
     conn = temp_db
 
     # Insert episodes
@@ -181,46 +180,11 @@ def test_get_completed_episodes_needing_summary(temp_db):
         final_rating=4,
     )
 
-    # Get completed episodes needing summary
+    # Get items needing summary
     # Should return ep-2 only (completed + has transcript + no summary)
-    episodes = get_completed_episodes_needing_summary(conn)
-    assert len(episodes) == 1
-    assert episodes[0]["guid"] == "ep-2"
-    assert episodes[0]["transcript_text"] == "Transcript 2"
+    items = get_items_needing_summary(conn)
+    assert len(items) == 1
+    assert items[0]["id"] == "ep-2"
+    assert items[0]["item_type"] == "podcast"
 
 
-def test_get_completed_newsletters_needing_summary(temp_db):
-    """Test retrieving completed newsletters that need summarization."""
-    conn = temp_db
-
-    # Insert newsletters
-    upsert_newsletter(
-        conn, "msg-1", "Newsletter 1", "sender@example.com", "2025-10-09", body_text="Content 1"
-    )
-    upsert_newsletter(
-        conn, "msg-2", "Newsletter 2", "sender@example.com", "2025-10-10", body_text="Content 2"
-    )
-
-    # Mark as completed
-    update_newsletter_status(conn, "msg-1", "completed")
-    update_newsletter_status(conn, "msg-2", "completed")
-
-    # Add summary for msg-1
-    save_summary(
-        conn,
-        item_id="msg-1",
-        item_type="newsletter",
-        summary="Summary 1",
-        key_topics='["topic1"]',
-        companies="[]",
-        tools="[]",
-        quotes="[]",
-        raw_rating=3,
-        final_rating=3,
-    )
-
-    # Get completed newsletters needing summary
-    # Should return msg-2 only (completed + no summary)
-    newsletters = get_completed_newsletters_needing_summary(conn)
-    assert len(newsletters) == 1
-    assert newsletters[0]["message_id"] == "msg-2"

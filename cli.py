@@ -22,8 +22,8 @@ from src.db.queries import (
 )
 from src.export.digest import generate_daily_digest, write_digest
 from src.export.obsidian import (
-    render_episode_note,
-    render_newsletter_note,
+    NoteContext,
+    render_note,
     write_note,
     git_commit_and_push,
     sanitize_filename,
@@ -293,19 +293,32 @@ def cmd_export(args):
     for row in episodes:
         rec = dict(zip(cols, row))
         import json as _json
-        note = render_episode_note(
+
+        key_topics = _json.loads(rec["key_topics"]) if rec["key_topics"] else []
+        companies = _json.loads(rec["companies"]) if rec["companies"] else []
+        tools = _json.loads(rec["tools"]) if rec["tools"] else []
+        quotes = _json.loads(rec["quotes"]) if rec["quotes"] else []
+
+        note_context = NoteContext(
             title=rec["title"],
             date=rec["publish_date"],
             authors=[rec["author"]] if rec["author"] else [],
-            guests=[],
             link=rec["link"],
             version=rec["guid"],
             rating_llm=rec["final_rating"] or 0,
             summary=rec["summary"],
-            key_topics=_json.loads(rec["key_topics"]) if rec["key_topics"] else [],
-            companies=_json.loads(rec["companies"]) if rec["companies"] else [],
-            tools=_json.loads(rec["tools"]) if rec["tools"] else [],
-            quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
+            key_topics=key_topics,
+            companies=companies,
+            tools=tools,
+            quotes=quotes,
+            guests=[],
+        )
+
+        note = render_note(
+            note_context,
+            template_name="episode.md.j2",
+            note_type="podcast",
+            transform_quotes=True,
         )
         safe_title = sanitize_filename(rec['title'])
         note_path = output_root / f"{rec['publish_date'][:10]} - {safe_title}.md"
@@ -323,7 +336,13 @@ def cmd_export(args):
     for row in newsletters:
         rec = dict(zip(cols, row))
         import json as _json
-        note = render_newsletter_note(
+
+        key_topics = _json.loads(rec["key_topics"]) if rec["key_topics"] else []
+        companies = _json.loads(rec["companies"]) if rec["companies"] else []
+        tools = _json.loads(rec["tools"]) if rec["tools"] else []
+        quotes = _json.loads(rec["quotes"]) if rec["quotes"] else []
+
+        note_context = NoteContext(
             title=rec["subject"],
             date=rec["date"],
             authors=[rec["sender"]] if rec["sender"] else [],
@@ -331,10 +350,16 @@ def cmd_export(args):
             version=rec["message_id"],
             rating_llm=rec["final_rating"] or 0,
             summary=rec["summary"],
-            key_topics=_json.loads(rec["key_topics"]) if rec["key_topics"] else [],
-            companies=_json.loads(rec["companies"]) if rec["companies"] else [],
-            tools=_json.loads(rec["tools"]) if rec["tools"] else [],
-            quotes=_json.loads(rec["quotes"]) if rec["quotes"] else [],
+            key_topics=key_topics,
+            companies=companies,
+            tools=tools,
+            quotes=quotes,
+        )
+
+        note = render_note(
+            note_context,
+            template_name="newsletter.md.j2",
+            note_type="newsletter",
         )
         safe_subject = sanitize_filename(rec['subject'])
         note_path = output_root / f"{rec['date'][:10]} - {safe_subject}.md"
