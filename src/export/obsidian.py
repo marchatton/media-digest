@@ -188,13 +188,25 @@ def git_commit_and_push(repo_path: Path, commit_message: str) -> None:
         commit_message: Commit message
     """
     try:
-        # Git add
+        # Git add any new or modified files under the repo path
         subprocess.run(
             ["git", "add", "."],
             cwd=repo_path,
             check=True,
             capture_output=True,
         )
+
+        # Check if anything ended up staged; skip commit/push if clean
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if not status.stdout.strip():
+            logger.info("No changes to commit")
+            return
 
         # Git commit
         subprocess.run(

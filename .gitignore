@@ -56,3 +56,7 @@ Thumbs.db
 *.json
 token_*
 gmail_token.json
+
+# Runtime locks & venv
+.locks/
+venv/

@@ -16,7 +16,7 @@ echo "✓ Summarization complete"
 
 echo ""
 echo "Step 3: Export to Obsidian format"
-python3 cli.py export --limit 1
+python3 cli.py export
 echo "✓ Export complete"
 
 echo ""

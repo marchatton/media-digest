@@ -3,8 +3,9 @@
 
 import argparse
 import json
+import os
 import sys
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
 from src.config import config
@@ -40,6 +41,60 @@ from src.summarize.rater import rate_content
 # Set up logging
 setup_logging()
 logger = get_logger(__name__)
+
+
+PODCAST_DIR = Path("unread") / "Podcasts"
+NEWSLETTER_DIR = Path("unread") / "Newsletters"
+DAILY_DIR = Path("unread") / "Daily summary"
+WEEKLY_DIR = Path("unread") / "Weekly summary"
+READ_STATUSES = ("unread", "read")
+
+
+def _slugify_component(text: str) -> str:
+    """Convert text into a filesystem-safe component."""
+
+    sanitized = sanitize_filename(text or "")
+    if not sanitized:
+        sanitized = "untitled"
+    return sanitized.replace(" ", "_")
+
+
+def _ensure_export_dirs(root: Path) -> None:
+    """Ensure unread/read folder structure exists."""
+
+    categories = [PODCAST_DIR.name, NEWSLETTER_DIR.name, DAILY_DIR.name, WEEKLY_DIR.name]
+    for status in READ_STATUSES:
+        for category in categories:
+            (root / status / category).mkdir(parents=True, exist_ok=True)
+
+
+def _podcast_relative_path(publish_date: str | None, author: str | None, title: str) -> Path:
+    date_prefix = (publish_date or "unknown-date")[:10]
+    show = author or "Unknown podcast"
+    filename = f"{date_prefix}_{_slugify_component(show)}_{_slugify_component(title)}.md"
+    return PODCAST_DIR / filename
+
+
+def _newsletter_relative_path(date_str: str | None, sender: str | None, subject: str) -> Path:
+    date_prefix = (date_str or "unknown-date")[:10]
+    sender_name = sender or "Unknown sender"
+    filename = f"{date_prefix}_{_slugify_component(sender_name)}_{_slugify_component(subject)}.md"
+    return NEWSLETTER_DIR / filename
+
+
+def _daily_digest_relative_path(digest_date: date) -> Path:
+    return DAILY_DIR / f"{digest_date.isoformat()} daily.md"
+
+
+def _weekly_digest_relative_path(week_end: date) -> Path:
+    return WEEKLY_DIR / f"{week_end.isoformat()} weekly.md"
+
+
+def _relative_link(from_path: Path, to_path: Path) -> str:
+    """Return POSIX relative path from from_path to to_path."""
+
+    rel = os.path.relpath(os.fspath(to_path), start=os.fspath(from_path))
+    return rel.replace("\\", "/")
 
 
 def cmd_discover(args):
@@ -279,6 +334,7 @@ def cmd_export(args):
     conn = get_connection()
     output_root = config.output_repo_path / config.export_output_path
     output_root.mkdir(parents=True, exist_ok=True)
+    _ensure_export_dirs(output_root)
 
     # Export episodes with summaries
     episodes = conn.execute(
@@ -320,8 +376,12 @@ def cmd_export(args):
             note_type="podcast",
             transform_quotes=True,
         )
-        safe_title = sanitize_filename(rec['title'])
-        note_path = output_root / f"{rec['publish_date'][:10]} - {safe_title}.md"
+        rel_note_path = _podcast_relative_path(
+            rec.get("publish_date"),
+            rec.get("author"),
+            rec["title"],
+        )
+        note_path = output_root / rel_note_path
         write_note(note_path, note, check_edit=True)
 
     # Export newsletters with summaries
@@ -361,8 +421,12 @@ def cmd_export(args):
             template_name="newsletter.md.j2",
             note_type="newsletter",
         )
-        safe_subject = sanitize_filename(rec['subject'])
-        note_path = output_root / f"{rec['date'][:10]} - {safe_subject}.md"
+        rel_note_path = _newsletter_relative_path(
+            rec.get("date"),
+            rec.get("sender"),
+            rec.get("subject", ""),
+        )
+        note_path = output_root / rel_note_path
         write_note(note_path, note, check_edit=True)
 
     # Commit and push unless dry-run
@@ -385,10 +449,15 @@ def cmd_build_daily(args):
     # Items processed (summarized) on target_date
     items: list[dict] = []
 
+    output_root = config.output_repo_path / config.export_output_path
+    _ensure_export_dirs(output_root)
+    daily_rel_path = _daily_digest_relative_path(target_date)
+    daily_full_path = output_root / daily_rel_path
+
     # Episodes
     ep_rows = conn.execute(
         """
-        SELECT e.title, e.publish_date, s.final_rating, s.summary
+        SELECT e.title, e.publish_date, coalesce(e.author, '') AS author, s.final_rating, s.summary
         FROM episodes e
         JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
         WHERE CAST(s.created_at AS DATE) = ?
@@ -396,20 +465,21 @@ def cmd_build_daily(args):
         """,
         (str(target_date),),
     ).fetchall()
-    for title, publish_date, rating, summary in ep_rows:
-        note_filename = f"{publish_date[:10]} - {sanitize_filename(title)}.md"
+    for title, publish_date, author, rating, summary in ep_rows:
+        rel_note_path = _podcast_relative_path(publish_date, author, title)
+        link = _relative_link(daily_full_path.parent, output_root / rel_note_path)
         items.append({
             "title": title,
             "type": "podcast",
             "rating_llm": rating or 0,
             "summary": summary,
-            "note_link": note_filename,
+            "note_link": link,
         })
 
     # Newsletters
     nl_rows = conn.execute(
         """
-        SELECT n.subject, n.date, s.final_rating, s.summary
+        SELECT n.subject, n.date, coalesce(n.sender, '') AS sender, s.final_rating, s.summary
         FROM newsletters n
         JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
         WHERE CAST(s.created_at AS DATE) = ?
@@ -417,14 +487,15 @@ def cmd_build_daily(args):
         """,
         (str(target_date),),
     ).fetchall()
-    for subject, date_str, rating, summary in nl_rows:
-        note_filename = f"{date_str[:10]} - {sanitize_filename(subject)}.md"
+    for subject, date_str, sender, rating, summary in nl_rows:
+        rel_note_path = _newsletter_relative_path(date_str, sender, subject)
+        link = _relative_link(daily_full_path.parent, output_root / rel_note_path)
         items.append({
             "title": subject,
             "type": "newsletter",
             "rating_llm": rating or 0,
             "summary": summary,
-            "note_link": note_filename,
+            "note_link": link,
         })
 
     # Failures that occurred on target_date
@@ -452,9 +523,7 @@ def cmd_build_daily(args):
         actionables=[],
     )
 
-    output_dir = config.output_repo_path / config.export_output_path
-    output_path = output_dir / f"daily-{target_date.isoformat()}.md"
-    write_digest(output_path, content)
+    write_digest(daily_full_path, content)
     logger.info("Daily digest generated")
 
 
@@ -473,11 +542,21 @@ def cmd_build_weekly(args):
     # Collect items for the week, sorted by rating desc then recency
     rows = conn.execute(
         """
-        SELECT 'podcast' AS type, e.title AS title, e.publish_date AS date, s.final_rating AS rating, s.summary
+        SELECT 'podcast' AS type,
+               e.title AS title,
+               e.publish_date AS date,
+               coalesce(e.author, '') AS author,
+               s.final_rating AS rating,
+               s.summary
         FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
         WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
         UNION ALL
-        SELECT 'newsletter' AS type, n.subject AS title, n.date AS date, s.final_rating AS rating, s.summary
+        SELECT 'newsletter' AS type,
+               n.subject AS title,
+               n.date AS date,
+               coalesce(n.sender, '') AS author,
+               s.final_rating AS rating,
+               s.summary
         FROM newsletters n JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
         WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
         ORDER BY rating DESC NULLS LAST, date DESC
@@ -485,15 +564,25 @@ def cmd_build_weekly(args):
         (str(week_start), str(week_end), str(week_start), str(week_end)),
     ).fetchall()
 
-    for type_name, title, date_str, rating, summary in rows:
-        note_filename = f"{date_str[:10]} - {title}.md"
+    output_root = config.output_repo_path / config.export_output_path
+    _ensure_export_dirs(output_root)
+    weekly_rel_path = _weekly_digest_relative_path(week_end)
+    weekly_full_path = output_root / weekly_rel_path
+
+    for type_name, title, date_str, author, rating, summary in rows:
+        if type_name == "podcast":
+            rel_note_path = _podcast_relative_path(date_str, author, title)
+        else:
+            rel_note_path = _newsletter_relative_path(date_str, author, title)
+        link = _relative_link(weekly_full_path.parent, output_root / rel_note_path)
+
         # Simple placeholder takeaways: one item from summary
         takeaways = [{"text": summary, "reference": ""}]
         items.append({
             "title": title,
             "rating_llm": rating or 0,
             "takeaways": takeaways,
-            "note_link": note_filename,
+            "note_link": link,
         })
 
     failures: list[dict] = []
@@ -519,9 +608,7 @@ def cmd_build_weekly(args):
         failures=failures,
     )
 
-    output_dir = config.output_repo_path / config.export_output_path
-    output_path = output_dir / f"weekly-{week_end.isoformat()}.md"
-    write_digest(output_path, content)
+    write_digest(weekly_full_path, content)
     logger.info("Weekly digest generated")
 
 

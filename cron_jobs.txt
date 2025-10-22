@@ -1,0 +1,11 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Media Digest pipeline (UTC)
+0 0 * * * /usr/bin/flock -n /opt/digestor/.locks/git_pull.lock /opt/digestor/scripts/cron_git_pull.sh
+20 0 * * * /usr/bin/flock -n /opt/digestor/.locks/discover.lock /opt/digestor/scripts/cron_discover.sh
+45 0 * * * /usr/bin/flock -n /opt/digestor/.locks/process_audio.lock /opt/digestor/scripts/cron_process_audio.sh
+0 4 * * * /usr/bin/flock -n /opt/digestor/.locks/summarize.lock /opt/digestor/scripts/cron_summarize.sh
+30 4 * * * /usr/bin/flock -n /opt/digestor/.locks/export.lock /opt/digestor/scripts/cron_export.sh
+5 5 * * * /usr/bin/flock -n /opt/digestor/.locks/daily.lock /opt/digestor/scripts/cron_build_daily.sh
+10 6 * * Fri /usr/bin/flock -n /opt/digestor/.locks/weekly.lock /opt/digestor/scripts/cron_build_weekly.sh
