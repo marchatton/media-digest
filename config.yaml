@@ -28,7 +28,7 @@ llm:
     tagging: claude-sonnet-4-5-20250929  # Task 8.0
 
 export:
-  output_path: 5-Resources/0-Media digester
+  output_path: .
   git_push: true  # Push to Git after export (can be overridden with --no-push flag)
   daily_time: "05:00"  # UTC
   weekly_day: "FRI"

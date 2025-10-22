@@ -60,3 +60,6 @@ gmail_token.json
 # Runtime locks & venv
 .locks/
 venv/
+
+# Export notes (handled in separate repo)
+output/
