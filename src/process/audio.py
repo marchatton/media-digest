@@ -1,11 +1,12 @@
 """Audio download using yt-dlp."""
 
 import subprocess
+import sys
 from pathlib import Path
 
+from src.config import config
 from src.logging_config import get_logger
 from src.utils.retry import retry_with_backoff
-from src.config import config
 
 logger = get_logger(__name__)
 
@@ -35,18 +36,24 @@ def download_audio(url: str, output_dir: Path, episode_guid: str) -> Path:
 
     try:
         # Run yt-dlp
+        command = [
+            sys.executable,
+            "-m",
+            "yt_dlp",
+            "-x",  # Extract audio
+            "--audio-format",
+            "mp3",
+            "--audio-quality",
+            "0",  # Best quality
+            "-o",
+            output_template,
+            "--no-playlist",
+            "--quiet",
+            "--progress",
+            url,
+        ]
         result = subprocess.run(
-            [
-                "yt-dlp",
-                "-x",  # Extract audio
-                "--audio-format", "mp3",
-                "--audio-quality", "0",  # Best quality
-                "-o", output_template,
-                "--no-playlist",  # Don't download playlists
-                "--quiet",
-                "--progress",
-                url,
-            ],
+            command,
             capture_output=True,
             text=True,
             check=True,
