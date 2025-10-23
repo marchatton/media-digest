@@ -24,7 +24,7 @@ I've started a background process to test the full Media Digest pipeline with a 
 
 ```bash
 cd /Users/marc/Code/personal-projects/media-digest/media-digest/.conductor/harrisburg
-tail -50 process.log
+tail -50 logs/process.log
 ```
 
 ### If successful, run the full pipeline:
@@ -130,7 +130,7 @@ python3.11 cli.py discover --since 2025-10-01
 ## Files Created
 
 - `run_full_test.sh` - Script to run full pipeline automatically
-- `process.log` - Log file for the background process
+- `logs/process.log` - Log file for the background process
 - `digestor.duckdb` - DuckDB database with 22 discovered episodes
 - `data/podcasts.opml` - OPML with TED Talks and NPR Up First
 - `.env` - Environment variables (with your Anthropic API key)
@@ -145,7 +145,7 @@ python3.11 cli.py discover --since 2025-10-01
 ## Questions or Issues?
 
 If something fails, check:
-1. `process.log` - Full output from audio processing
+1. `logs/process.log` - Full output from audio processing
 2. `logs/digest.log` - Application logs
 3. DuckDB status: `python3 -c "import duckdb; conn = duckdb.connect('digestor.duckdb'); print(conn.execute('SELECT * FROM episodes WHERE status = \"failed\"').fetchall())"`
 
