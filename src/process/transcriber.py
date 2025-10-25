@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypedDict, cast
 
 from faster_whisper import WhisperModel
 
@@ -11,17 +11,34 @@ from src.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+class TranscriptionSegment(TypedDict):
+    """Segment of a transcription result."""
+
+    start: float
+    end: float
+    text: str
+
+
+class TranscriptionResult(TypedDict):
+    """Typed transcription result produced by a transcriber."""
+
+    text: str
+    segments: list[TranscriptionSegment]
+    language: str | None
+    duration: float
+
+
 class Transcriber(Protocol):
     """Protocol for transcription services."""
 
-    def transcribe(self, audio_path: Path) -> dict[str, any]:
+    def transcribe(self, audio_path: Path) -> TranscriptionResult:
         """Transcribe audio file.
 
         Args:
             audio_path: Path to audio file
 
         Returns:
-            Dictionary with 'text' and 'segments' (with timestamps)
+            Typed transcription result with text, segments, and metadata.
         """
         ...
 
@@ -44,16 +61,18 @@ class WhisperTranscriber:
         logger.info(f"Loading Whisper model: {model_size} ({compute_type} on {device})")
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
 
-    def transcribe(self, audio_path: Path) -> dict[str, any]:
+    def transcribe(self, audio_path: Path) -> TranscriptionResult:
         """Transcribe audio file using Whisper.
 
         Args:
             audio_path: Path to audio file
 
         Returns:
-            Dictionary with:
+            Typed transcription result containing:
                 - text: Full transcript text
                 - segments: List of segments with timestamps and text
+                - language: Detected spoken language (if available)
+                - duration: Total audio duration in seconds
         """
         logger.info(f"Transcribing: {audio_path}")
 
@@ -65,11 +84,11 @@ class WhisperTranscriber:
             )
 
             # Collect segments
-            all_segments = []
-            full_text = []
+            all_segments: list[TranscriptionSegment] = []
+            full_text: list[str] = []
 
             for segment in segments:
-                segment_data = {
+                segment_data: TranscriptionSegment = {
                     "start": segment.start,
                     "end": segment.end,
                     "text": segment.text.strip(),
@@ -77,7 +96,7 @@ class WhisperTranscriber:
                 all_segments.append(segment_data)
                 full_text.append(segment.text.strip())
 
-            result = {
+            result: TranscriptionResult = {
                 "text": " ".join(full_text),
                 "segments": all_segments,
                 "language": info.language,
@@ -96,7 +115,7 @@ class WhisperTranscriber:
             raise
 
 
-def save_transcript(transcript: dict[str, any], output_path: Path) -> None:
+def save_transcript(transcript: TranscriptionResult, output_path: Path) -> None:
     """Save transcript to JSON file.
 
     Args:
@@ -105,13 +124,13 @@ def save_transcript(transcript: dict[str, any], output_path: Path) -> None:
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, "w") as f:
-        json.dump(transcript, f, indent=2)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(transcript, f, indent=2, ensure_ascii=False)
 
     logger.info(f"Saved transcript to: {output_path}")
 
 
-def load_transcript(transcript_path: Path) -> dict[str, any]:
+def load_transcript(transcript_path: Path) -> TranscriptionResult:
     """Load transcript from JSON file.
 
     Args:
@@ -120,5 +139,5 @@ def load_transcript(transcript_path: Path) -> dict[str, any]:
     Returns:
         Transcript dictionary
     """
-    with open(transcript_path) as f:
-        return json.load(f)
+    with open(transcript_path, "r", encoding="utf-8") as f:
+        return cast(TranscriptionResult, json.load(f))
