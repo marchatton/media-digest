@@ -1,6 +1,8 @@
 """Database schema definitions for Media Digest."""
 
-SCHEMA_VERSION = 1
+from __future__ import annotations
+
+SCHEMA_VERSION = 2
 
 CREATE_EPISODES_TABLE = """
 CREATE TABLE IF NOT EXISTS episodes (
@@ -39,8 +41,7 @@ CREATE TABLE IF NOT EXISTS transcripts (
     episode_guid TEXT PRIMARY KEY,
     transcript_text TEXT NOT NULL,
     transcript_path TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT (now()),
-    FOREIGN KEY (episode_guid) REFERENCES episodes(guid)
+    created_at TIMESTAMP DEFAULT (now())
 )
 """
 
@@ -85,21 +86,64 @@ CREATE_INDEXES = [
 
 
 def init_schema(conn) -> None:
-    """Initialize database schema.
+    """Initialize database schema (idempotent) and run migrations."""
 
-    Args:
-        conn: DuckDB connection
-    """
     for table_sql in ALL_TABLES:
         conn.execute(table_sql)
 
-    # Create indexes (idempotent)
     for index_sql in CREATE_INDEXES:
         conn.execute(index_sql)
 
-    # Insert schema version if not exists
-    result = conn.execute("SELECT version FROM schema_version WHERE version = ?", (SCHEMA_VERSION,)).fetchone()
-    if not result:
-        conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+    row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+    current_version = row[0] if row and row[0] is not None else None
 
-    conn.commit()
+    if current_version is None:
+        conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+        conn.commit()
+        return
+
+    if current_version < SCHEMA_VERSION:
+        apply_migrations(conn, current_version)
+        conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+        conn.commit()
+
+
+def apply_migrations(conn, current_version: int) -> None:
+    """Run incremental migrations up to the latest schema version."""
+
+    if current_version < 2:
+        migrate_transcripts_table(conn)
+
+
+def migrate_transcripts_table(conn) -> None:
+    """Recreate transcripts table without foreign key constraints."""
+
+    table_exists = conn.execute(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE lower(table_name) = 'transcripts'"
+    ).fetchone()[0]
+
+    if not table_exists:
+        return
+
+    conn.execute("DROP TABLE IF EXISTS transcripts__tmp")
+    conn.execute(
+        """
+        CREATE TABLE transcripts__tmp (
+            episode_guid TEXT PRIMARY KEY,
+            transcript_text TEXT NOT NULL,
+            transcript_path TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT (now())
+        )
+        """
+    )
+
+    conn.execute(
+        """
+        INSERT INTO transcripts__tmp (episode_guid, transcript_text, transcript_path, created_at)
+        SELECT episode_guid, transcript_text, transcript_path, created_at
+        FROM transcripts
+        """
+    )
+
+    conn.execute("DROP TABLE transcripts")
+    conn.execute("ALTER TABLE transcripts__tmp RENAME TO transcripts")

@@ -33,7 +33,8 @@ def get_connection(db_path: str = "digestor.duckdb") -> duckdb.DuckDBPyConnectio
 
         if is_new:
             logger.info("Initializing database schema")
-            init_schema(_connection)
+
+        init_schema(_connection)
 
     return _connection
 

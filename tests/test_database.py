@@ -100,6 +100,35 @@ def test_episode_status_update(temp_db):
     assert result[1] == "Download timeout"
 
 
+def test_episode_status_with_transcript(temp_db):
+    """Episodes with transcripts should still update status without FK violations."""
+    conn = temp_db
+
+    upsert_episode(
+        conn,
+        guid="ep-with-transcript",
+        feed_url="https://example.com/feed",
+        title="Episode With Transcript",
+        publish_date="2025-10-09",
+        audio_url="https://example.com/audio.mp3",
+    )
+
+    save_transcript(
+        conn,
+        episode_guid="ep-with-transcript",
+        transcript_text="Lorem ipsum",
+        transcript_path="/tmp/ep-with-transcript.json",
+    )
+
+    # Should not raise even though transcript row exists
+    update_episode_status(conn, "ep-with-transcript", "completed")
+
+    result = conn.execute(
+        "SELECT status FROM episodes WHERE guid = ?", ("ep-with-transcript",)
+    ).fetchone()
+    assert result[0] == "completed"
+
+
 def test_get_pending_episodes(temp_db):
     """Test retrieving pending episodes."""
     conn = temp_db
@@ -186,5 +215,4 @@ def test_get_items_needing_summary(temp_db):
     assert len(items) == 1
     assert items[0]["id"] == "ep-2"
     assert items[0]["item_type"] == "podcast"
-
 
