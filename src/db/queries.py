@@ -1,7 +1,8 @@
 """Database query functions for Media Digest."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
+
 
 from src.logging_config import get_logger
 
@@ -131,6 +132,62 @@ def update_newsletter_status(conn, message_id: str, status: str, error_reason: s
     logger.debug(f"Updated newsletter {message_id} status to {status}")
 
 
+def upsert_newsletter_digest_entry(
+    conn,
+    *,
+    message_id: str,
+    subject: str,
+    preview: str,
+    source_link: str | None,
+) -> None:
+    """Insert or update a digest preview entry for a newsletter."""
+
+    conn.execute(
+        """
+        INSERT INTO newsletter_digest_entries (message_id, subject, preview, source_link, processed_at)
+        VALUES (?, ?, ?, ?, now())
+        ON CONFLICT (message_id) DO UPDATE SET
+            subject = excluded.subject,
+            preview = excluded.preview,
+            source_link = excluded.source_link,
+            processed_at = now()
+        """,
+        (message_id, subject, preview, source_link),
+    )
+    conn.commit()
+    logger.debug("Upserted newsletter digest preview for %s", message_id)
+
+
+def get_newsletter_digest_entries(
+    conn,
+    *,
+    start_date: str,
+    end_date: str | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch newsletter digest previews within a date range (inclusive)."""
+
+    if end_date is None:
+        query = (
+            "SELECT message_id, subject, preview, coalesce(source_link, '') AS source_link, processed_at "
+            "FROM newsletter_digest_entries "
+            "WHERE CAST(processed_at AS DATE) = ? "
+            "ORDER BY processed_at DESC"
+        )
+        params: tuple[Any, ...] = (start_date,)
+    else:
+        query = (
+            "SELECT message_id, subject, preview, coalesce(source_link, '') AS source_link, processed_at "
+            "FROM newsletter_digest_entries "
+            "WHERE CAST(processed_at AS DATE) BETWEEN ? AND ? "
+            "ORDER BY processed_at DESC"
+        )
+        params = (start_date, end_date)
+
+    result = conn.execute(query, params).fetchall()
+    columns = [desc[0] for desc in conn.description]
+    return [dict(zip(columns, row)) for row in result]
+
+
 def _get_pending_items(conn, table: str, order_column: str, limit: int | None) -> list[dict[str, Any]]:
     """Fetch pending rows from the given table ordered by the provided column."""
     query = f"SELECT * FROM {table} WHERE status = 'pending' ORDER BY {order_column} DESC"
@@ -175,6 +232,18 @@ def save_transcript(conn, episode_guid: str, transcript_text: str, transcript_pa
     )
     conn.commit()
     logger.debug(f"Saved transcript for episode {episode_guid}")
+
+
+def get_transcript_text(conn, episode_guid: str) -> Optional[str]:
+    """Return transcript text for an episode, if present."""
+    row = conn.execute(
+        "SELECT transcript_text FROM transcripts WHERE episode_guid = ?",
+        (episode_guid,),
+    ).fetchone()
+    if not row:
+        return None
+    transcript_text = row[0]
+    return transcript_text if transcript_text else None
 
 
 def save_summary(

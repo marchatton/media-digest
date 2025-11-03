@@ -1,12 +1,16 @@
 """process-newsletters command implementation."""
 
 from argparse import _SubParsersAction
-from pathlib import Path
 
+from src.config import config
 from src.db.connection import get_connection
-from src.db.queries import get_pending_newsletters, update_newsletter_status
+from src.db.queries import (
+    get_pending_newsletters,
+    update_newsletter_status,
+    upsert_newsletter_digest_entry,
+)
 from src.logging_config import get_logger
-from src.process.newsletter_parser import parse_newsletter, save_parsed_newsletter
+from src.process.newsletter_parser import build_preview, parse_newsletter, save_parsed_newsletter
 
 logger = get_logger(__name__)
 
@@ -19,7 +23,7 @@ def handle(args) -> None:
 
     logger.info("Found %d pending newsletters", len(pending))
 
-    newsletter_dir = Path("blobs/newsletters")
+    newsletter_dir = config.newsletter_blob_dir
 
     for newsletter in pending:
         message_id = newsletter["message_id"]
@@ -34,6 +38,14 @@ def handle(args) -> None:
             parsed_text = parse_newsletter(body_html, body_text)
             link = newsletter.get("link")
             save_parsed_newsletter(message_id, parsed_text, link, newsletter_dir)
+            preview = build_preview(parsed_text)
+            upsert_newsletter_digest_entry(
+                conn,
+                message_id=message_id,
+                subject=subject,
+                preview=preview,
+                source_link=link,
+            )
             update_newsletter_status(conn, message_id, "completed")
 
             logger.info("Completed: %s", subject)

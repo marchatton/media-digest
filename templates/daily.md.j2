@@ -1,5 +1,25 @@
 # Daily Digest - {{ date }}
 
+## Highlights
+
+### Top themes ({{ top_themes|length }})
+{% if top_themes -%}
+{% for theme in top_themes -%}
+- **{{ theme.title }}** — {{ theme.summary }}
+{% endfor %}
+{% else -%}
+- _No themes captured._
+{% endif %}
+
+### Actionables ({{ actionables|length }})
+{% if actionables -%}
+{% for actionable in actionables -%}
+- {{ actionable }}
+{% endfor %}
+{% else -%}
+- _No actionables captured._
+{% endif %}
+
 ## Processed
 
 ### Podcasts ({{ podcasts|length }})
