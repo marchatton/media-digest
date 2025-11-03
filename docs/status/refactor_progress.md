@@ -15,35 +15,36 @@ _Last updated: 2025-11-03T00:47:44Z_
   - Shared filesystem/path utilities extracted to `src/cli/common.py`.
   - `cli.py` now handles parser creation and delegates to `src.cli.register_commands`.
   - Added per-command logging and reduced inline SQL duplication.
+- **Service abstractions for processing and summarization**
+  - Introduced `PodcastProcessor` and `SummarizationService` to keep CLI commands thin.
+  - Repository classes (`EpisodeRepository`, `TranscriptRepository`, `SummaryRepository`) centralize DuckDB access with typed records.
+  - CLI commands now depend on services, eliminating ad-hoc SQL and improving testability.
 
 - **YAML front matter hardening**
   - Episode note template (`templates/episode.md.j2`) now JSON-encodes title/date/link/etc. to avoid Dataview "Invalid properties" errors.
+
+- **Configuration and runtime layout typing**
+  - `Config.load` now returns a frozen dataclass with validated environment variables and YAML settings.
+  - Runtime artifacts (`blobs/`, `logs/`, DuckDB) are rooted under a configurable `VAR_ROOT` directory with derived sub-paths.
+
+- **Newsletter digest pipeline cleanup**
+  - Processing writes lightweight previews to `newsletter_digest_entries` for digest rendering instead of inlining body text.
+  - CLI commands query the dedicated table and share preview helpers across workflows.
+
+- **Digest highlight restoration**
+  - Daily and weekly digests include aggregated top themes and actionables sourced from structured podcast summaries.
+  - Added unit coverage for highlight extraction to guard against malformed JSON and duplication.
 
 - **Testing**
   - `pytest` suite passing after each change (no regressions detected).
 
 ## Outstanding Refactor Opportunities
 
-1. **Service abstraction for core workflows**
-   - Introduce `PodcastProcessor`, `SummarizationService`, etc., to separate business logic from CLI glue.
-   - Encapsulate retry/error handling so commands remain thin orchestrators.
+1. **Backfill newsletter previews**
+   - Write a one-off migration/command to populate `newsletter_digest_entries` for legacy completed newsletters.
 
-2. **Repository layer for DuckDB access**
-   - Replace raw SQL in CLI modules with typed repositories or query objects.
-   - Clarify return types (episodes/newsletters) to reduce manual dict handling.
-
-3. **Typed configuration model**
-   - Wrap `src/config.py` values in a Pydantic model or `dataclass` for early validation.
-
-4. **Newsletter pipeline review**
-   - Since newsletters are no longer summarized, remove dead code paths and consider storing lightweight metadata for digests in a dedicated table.
-
-5. **Digest summarizer enhancements**
-   - Reintroduce "top themes"/"actionables" when summaries become structured again.
-   - Expand tests around digest rendering and CLI commands.
-
-6. **Runtime artifact layout**
-   - Optionally move `blobs/`, `logs/`, `digestor.duckdb` under a `var/` directory with configurable paths.
+2. **Digest UX polish**
+   - Consider surfacing notable quotes or ratings distributions alongside the restored themes/actionables.
 
 ## Next Steps for Async Execution
 

@@ -12,8 +12,11 @@ from src.db.queries import (
     get_pending_episodes,
     get_pending_newsletters,
     get_items_needing_summary,
+    get_transcript_text,
     save_transcript,
     save_summary,
+    upsert_newsletter_digest_entry,
+    get_newsletter_digest_entries,
 )
 
 
@@ -129,6 +132,32 @@ def test_episode_status_with_transcript(temp_db):
     assert result[0] == "completed"
 
 
+def test_get_transcript_text(temp_db):
+    """Transcript helper should return text or None."""
+    conn = temp_db
+
+    upsert_episode(
+        conn,
+        guid="ep-transcript",
+        feed_url="https://example.com/feed",
+        title="Episode Transcript",
+        publish_date="2025-10-09",
+        audio_url="https://example.com/audio.mp3",
+    )
+
+    # No transcript yet
+    assert get_transcript_text(conn, "ep-transcript") is None
+
+    save_transcript(
+        conn,
+        episode_guid="ep-transcript",
+        transcript_text="Lorem ipsum",
+        transcript_path="/tmp/ep-transcript.json",
+    )
+
+    assert get_transcript_text(conn, "ep-transcript") == "Lorem ipsum"
+
+
 def test_get_pending_episodes(temp_db):
     """Test retrieving pending episodes."""
     conn = temp_db
@@ -216,3 +245,58 @@ def test_get_items_needing_summary(temp_db):
     assert len(items) == 1
     assert items[0]["id"] == "ep-2"
     assert items[0]["item_type"] == "podcast"
+
+
+def test_newsletter_digest_entries(temp_db):
+    """Digest preview entries should upsert and filter by date."""
+
+    conn = temp_db
+    message_id = "msg-1"
+
+    upsert_newsletter(
+        conn,
+        message_id=message_id,
+        subject="Newsletter",
+        sender="sender@example.com",
+        date="2025-10-10",
+        body_html="<p>Hello</p>",
+        body_text="Hello world",
+        link="https://example.com",
+    )
+
+    upsert_newsletter_digest_entry(
+        conn,
+        message_id=message_id,
+        subject="Newsletter",
+        preview="Hello world",
+        source_link="https://example.com",
+    )
+
+    # Force processed_at to a deterministic value for filtering
+    conn.execute(
+        "UPDATE newsletter_digest_entries SET processed_at = ? WHERE message_id = ?",
+        ("2025-10-10 08:00:00", message_id),
+    )
+
+    entries = get_newsletter_digest_entries(conn, start_date="2025-10-10")
+    assert len(entries) == 1
+    assert entries[0]["preview"] == "Hello world"
+
+    # Upsert should overwrite preview and remain filterable by range
+    upsert_newsletter_digest_entry(
+        conn,
+        message_id=message_id,
+        subject="Newsletter",
+        preview="Updated preview",
+        source_link=None,
+    )
+    conn.execute(
+        "UPDATE newsletter_digest_entries SET processed_at = ? WHERE message_id = ?",
+        ("2025-10-12 09:30:00", message_id),
+    )
+
+    range_entries = get_newsletter_digest_entries(
+        conn, start_date="2025-10-10", end_date="2025-10-15"
+    )
+    assert len(range_entries) == 1
+    assert range_entries[0]["preview"] == "Updated preview"

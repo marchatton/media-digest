@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from dataclasses import replace
 
 from src.config import config
 from src.process.audio import download_audio
@@ -17,14 +18,6 @@ def test_download_audio_uses_configured_fallback(tmp_path, monkeypatch):
 
     fake_binary = tmp_path / "bin" / "yt-dlp"
     fake_binary.parent.mkdir()
-
-    original_config = config._config_data
-    config._config_data = {
-        "processing": {
-            "audio": {"yt_dlp_binary": str(fake_binary)},
-            "asr": {},
-        }
-    }
 
     calls: list[list[str]] = []
 
@@ -44,10 +37,11 @@ def test_download_audio_uses_configured_fallback(tmp_path, monkeypatch):
 
     monkeypatch.setattr("src.process.audio.subprocess.run", fake_run)
 
-    try:
-        result = download_audio("https://example.com/audio.mp3", audio_dir, guid)
-    finally:
-        config._config_data = original_config
+    patched_config = replace(config, yt_dlp_binary=fake_binary)
+    monkeypatch.setattr("src.config.config", patched_config)
+    monkeypatch.setattr("src.process.audio.config", patched_config)
+
+    result = download_audio("https://example.com/audio.mp3", audio_dir, guid)
 
     assert result == audio_dir / f"{guid}.mp3"
     assert result.exists()

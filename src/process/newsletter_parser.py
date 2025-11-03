@@ -33,6 +33,18 @@ def parse_newsletter(body_html: str | None, body_text: str | None) -> str:
     return ""
 
 
+def build_preview(text: str, max_length: int = 200) -> str:
+    """Generate a concise preview snippet for digest listings."""
+
+    snippet = " ".join((text or "").split()).strip()
+    if not snippet:
+        return "Preview unavailable."
+
+    if len(snippet) <= max_length:
+        return snippet
+    return snippet[:max_length] + "…"
+
+
 def html_to_text(html: str) -> str:
     """Convert HTML to plain text.
 

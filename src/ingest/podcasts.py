@@ -1,13 +1,12 @@
 """Podcast RSS feed ingestion."""
 
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Generator
 
 import feedparser
 
 from src.ingest.models import Episode
-from datetime import datetime, timezone
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -44,7 +43,10 @@ def parse_opml(opml_path: Path) -> list[str]:
         return []
 
 
-def discover_episodes(feed_url: str, since_date: str | None = None) -> Generator[Episode, None, None]:
+USER_AGENT = "MediaDigestBot/1.0 (+https://github.com/marchatton/media-digest)"
+
+
+def discover_episodes(feed_url: str, since_date: str | None = None) -> tuple[list[Episode], str | None]:
     """Discover episodes from RSS feed.
 
     Args:
@@ -56,11 +58,23 @@ def discover_episodes(feed_url: str, since_date: str | None = None) -> Generator
     """
     logger.info(f"Discovering episodes from {feed_url}")
 
-    try:
-        feed = feedparser.parse(feed_url)
+    episodes: list[Episode] = []
+    error: str | None = None
 
+    try:
+        feed = feedparser.parse(feed_url, request_headers={"User-Agent": USER_AGENT})
+
+        status = getattr(feed, "status", None)
+        bozo_message = None
         if feed.bozo:
-            logger.warning(f"Feed has errors: {feed_url}")
+            bozo_exception = getattr(feed, "bozo_exception", None)
+            bozo_message = str(bozo_exception) if bozo_exception else "Unknown parse error"
+            logger.warning("Feed has errors (%s): %s", feed_url, bozo_message)
+
+        if status and status >= 400:
+            error = f"HTTP {status}"
+        if bozo_message:
+            error = f"{error + '; ' if error else ''}{bozo_message}"
 
         for entry in feed.entries:
             # Extract episode metadata
@@ -158,13 +172,16 @@ def discover_episodes(feed_url: str, since_date: str | None = None) -> Generator
                 description=description,
             )
 
-            yield episode
+            episodes.append(episode)
 
     except Exception as e:
         logger.error(f"Failed to discover episodes from {feed_url}: {e}")
+        error = str(e)
+
+    return episodes, error
 
 
-def discover_all_episodes(opml_path: Path, since_date: str | None = None) -> list[Episode]:
+def discover_all_episodes(opml_path: Path, since_date: str | None = None) -> tuple[list[Episode], list[dict[str, str]]]:
     """Discover all episodes from feeds in OPML file.
 
     Args:
@@ -175,12 +192,15 @@ def discover_all_episodes(opml_path: Path, since_date: str | None = None) -> lis
         List of episodes
     """
     feed_urls = parse_opml(opml_path)
-    all_episodes = []
+    all_episodes: list[Episode] = []
+    issues: list[dict[str, str]] = []
 
     for feed_url in feed_urls:
-        episodes = list(discover_episodes(feed_url, since_date))
+        episodes, error = discover_episodes(feed_url, since_date)
         all_episodes.extend(episodes)
-        logger.info(f"Discovered {len(episodes)} episodes from {feed_url}")
+        if error:
+            issues.append({"feed_url": feed_url, "error": error})
+        logger.info("Discovered %d episodes from %s", len(episodes), feed_url)
 
-    logger.info(f"Total episodes discovered: {len(all_episodes)}")
-    return all_episodes
+    logger.info("Total episodes discovered: %d", len(all_episodes))
+    return all_episodes, issues

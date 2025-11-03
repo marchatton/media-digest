@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 CREATE_EPISODES_TABLE = """
 CREATE TABLE IF NOT EXISTS episodes (
@@ -33,6 +33,16 @@ CREATE TABLE IF NOT EXISTS newsletters (
     error_reason TEXT,
     created_at TIMESTAMP DEFAULT (now()),
     updated_at TIMESTAMP DEFAULT (now())
+)
+"""
+
+CREATE_NEWSLETTER_DIGEST_TABLE = """
+CREATE TABLE IF NOT EXISTS newsletter_digest_entries (
+    message_id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    preview TEXT NOT NULL,
+    source_link TEXT,
+    processed_at TIMESTAMP DEFAULT (now())
 )
 """
 
@@ -72,6 +82,7 @@ ALL_TABLES = [
     CREATE_SCHEMA_VERSION_TABLE,
     CREATE_EPISODES_TABLE,
     CREATE_NEWSLETTERS_TABLE,
+    CREATE_NEWSLETTER_DIGEST_TABLE,
     CREATE_TRANSCRIPTS_TABLE,
     CREATE_SUMMARIES_TABLE,
 ]
@@ -83,6 +94,7 @@ CREATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_newsletters_status_date ON newsletters(status, date)",
     # Summaries lookup by type/id
     "CREATE INDEX IF NOT EXISTS idx_summaries_item ON summaries(item_type, item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_newsletter_digest_processed_at ON newsletter_digest_entries(processed_at)",
 ]
 
 
@@ -118,6 +130,10 @@ def apply_migrations(conn, current_version: int) -> None:
 
     if current_version < 3:
         migrate_summaries_table(conn)
+        current_version = 3
+
+    if current_version < 4:
+        migrate_newsletter_digest_table(conn)
 
 
 def migrate_transcripts_table(conn) -> None:
@@ -169,3 +185,9 @@ def migrate_summaries_table(conn) -> None:
         return
 
     conn.execute("ALTER TABLE summaries ADD COLUMN structured_summary TEXT")
+
+
+def migrate_newsletter_digest_table(conn) -> None:
+    """Ensure the newsletter digest entries table exists."""
+
+    conn.execute(CREATE_NEWSLETTER_DIGEST_TABLE)

@@ -1,17 +1,21 @@
 """Database connection management for Media Digest."""
 
-import duckdb
+from __future__ import annotations
+
 from pathlib import Path
 
+import duckdb
+
+from src.config import config
 from src.db.schema import init_schema
 from src.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-_connection = None
+_connection: duckdb.DuckDBPyConnection | None = None
 
 
-def get_connection(db_path: str = "digestor.duckdb") -> duckdb.DuckDBPyConnection:
+def get_connection(db_path: str | Path | None = None) -> duckdb.DuckDBPyConnection:
     """Get or create database connection.
 
     Args:
@@ -23,13 +27,15 @@ def get_connection(db_path: str = "digestor.duckdb") -> duckdb.DuckDBPyConnectio
     global _connection
 
     if _connection is None:
-        logger.info(f"Connecting to database: {db_path}")
-        db_file = Path(db_path)
+        resolved_path = Path(db_path) if db_path is not None else config.db_path
+        resolved_path.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Connecting to database: {resolved_path}")
 
         # Create database file if it doesn't exist
-        is_new = not db_file.exists()
+        is_new = not resolved_path.exists()
 
-        _connection = duckdb.connect(str(db_file))
+        _connection = duckdb.connect(str(resolved_path))
 
         if is_new:
             logger.info("Initializing database schema")
