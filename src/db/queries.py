@@ -188,6 +188,7 @@ def save_summary(
     quotes: str,
     raw_rating: int,
     final_rating: int,
+    structured_summary: str | None,
 ) -> None:
     """Save summary to database.
 
@@ -205,8 +206,8 @@ def save_summary(
     """
     conn.execute(
         """
-        INSERT INTO summaries (item_id, item_type, summary, key_topics, companies, tools, quotes, raw_rating, final_rating)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO summaries (item_id, item_type, summary, key_topics, companies, tools, quotes, raw_rating, final_rating, structured_summary)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (item_id) DO UPDATE SET
             summary = excluded.summary,
             key_topics = excluded.key_topics,
@@ -214,9 +215,21 @@ def save_summary(
             tools = excluded.tools,
             quotes = excluded.quotes,
             raw_rating = excluded.raw_rating,
-            final_rating = excluded.final_rating
+            final_rating = excluded.final_rating,
+            structured_summary = excluded.structured_summary
         """,
-        (item_id, item_type, summary, key_topics, companies, tools, quotes, raw_rating, final_rating),
+        (
+            item_id,
+            item_type,
+            summary,
+            key_topics,
+            companies,
+            tools,
+            quotes,
+            raw_rating,
+            final_rating,
+            structured_summary,
+        ),
     )
     conn.commit()
     logger.debug(f"Saved summary for {item_type} {item_id}")
@@ -235,15 +248,7 @@ def get_items_needing_summary(conn, limit: int | None = None) -> list[dict[str, 
         "WHERE e.status = 'completed' AND s.item_id IS NULL"
     )
 
-    # Newsletters completed without summary
-    newsletters_query = (
-        "SELECT 'newsletter' AS item_type, n.message_id AS id, n.subject AS title, n.date AS date, n.sender AS author, "
-        "coalesce(n.link, '') AS link "
-        "FROM newsletters n LEFT JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter' "
-        "WHERE n.status = 'completed' AND s.item_id IS NULL"
-    )
-
-    union_query = f"{episodes_query} UNION ALL {newsletters_query} ORDER BY date DESC"
+    union_query = f"{episodes_query} ORDER BY date DESC"
     if limit:
         union_query += f" LIMIT {limit}"
 

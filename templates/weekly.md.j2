@@ -1,27 +1,28 @@
 # Weekly Digest - {{ week_start }} to {{ week_end }}
 
-## Top Content ({{ items|length }} items)
-
-{% for item in items -%}
-### {{ item.title }} ({{ item.rating_llm }}/5)
-
-**Top Takeaways:**
-{% for takeaway in item.takeaways -%}
-- {{ takeaway.text }} — {{ takeaway.reference }}
+## Podcasts ({{ podcasts|length }})
+{% if podcasts -%}
+{% for podcast in podcasts -%}
+- **{{ podcast.title }}** ({{ podcast.rating_llm }}/5) — {{ podcast.description }}
+  - [View note]({{ podcast.note_link }})
 {% endfor %}
+{% else -%}
+- _No podcasts processed._
+{% endif %}
 
-[View full note]({{ item.note_link }})
-
----
-
+## Newsletters ({{ newsletters|length }})
+{% if newsletters -%}
+{% for newsletter in newsletters -%}
+- **{{ newsletter.title }}** — {{ newsletter.description }}
+  - [Open in Gmail]({{ newsletter.source_link }})
 {% endfor %}
+{% else -%}
+- _No newsletters processed._
+{% endif %}
 
 {% if failures -%}
-## ⚠️ Failures This Week ({{ failures|length }})
-
+## ⚠️ Failures ({{ failures|length }})
 {% for failure in failures -%}
-- **{{ failure.title }}** ({{ failure.type }})
-  - Error: {{ failure.error_reason }}
-
+- **{{ failure.title }}** ({{ failure.type }}) — {{ failure.error_reason }}
 {% endfor %}
 {% endif %}

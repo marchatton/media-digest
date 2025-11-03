@@ -1,50 +1,69 @@
----
-title: {{ title }}
-date: {{ date }}
-author:
-{%- for author in authors %}
-  - {{ author }}
-{%- endfor %}
-guests:
-{%- for guest in guests %}
-  - {{ guest }}
-{%- endfor %}
-link: {{ link }}
-rating:
-type: {{ type }}
-version: {{ version }}
+title: {{ title | tojson }}
+date: {{ date | tojson }}
+authors: {{ authors | tojson }}
+guests: {{ (guests or []) | tojson }}
+link: {{ link | tojson }}
+rating: null
+type: podcast
+version: {{ version | tojson }}
 rating_llm: {{ rating_llm }}
 ---
 
 # {{ title }}
 
-> **Summary:** {{ summary }}
+> **One-sentence summary:** {{ summary }}
+
+{% if overview %}
+## Episode overview
+- **Podcast:** {{ overview.podcast_name or "Unknown" }}
+- **Episode title:** {{ overview.episode_title or title }}
+- **Duration:** {{ overview.duration or "Unknown" }}
+- **Theme:** {{ overview.theme }}
+- **Hook:** {{ overview.hook }}
+{% endif %}
 
 ## Key topics
 {% for topic in key_topics -%}
-- {{ topic }}
+- **{{ topic.topic }}{% if topic.timestamp %} ({{ topic.timestamp }}){% endif %}** — {{ topic.summary }}
 {% endfor %}
 
-{% if companies -%}
-## Companies
-{% for company in companies -%}
-- **{{ company.name }}** — {{ company.context }}
+## Notable insights & quotes
+{% for insight in insights -%}
+- {% if insight.attribution %}**{{ insight.attribution }}**{% else %}•{% endif %}{% if insight.timestamp_link %} ({{ insight.timestamp_link }}){% elif insight.timestamp %} ({{ insight.timestamp }}){% endif %} — {{ insight.idea }}
+{% endfor %}
+
+{% if takeaways %}
+## Takeaways / Actionable lessons
+{% for takeaway in takeaways -%}
+- {{ takeaway.text }}
 {% endfor %}
 {% endif %}
 
-{% if tools -%}
+{% if memorable_moments %}
+## Memorable moments
+{% for moment in memorable_moments -%}
+- **{{ moment.timestamp or "" }}** {{ moment.description }}
+{% endfor %}
+{% endif %}
+
+{% if tools %}
 ## Tools
 {% for tool in tools -%}
 - **{{ tool.name }}** — {{ tool.context }}
 {% endfor %}
 {% endif %}
 
-## Noteworthy quotes
-{% for quote in quotes -%}
-> {{ quote.text }}
-— {{ quote.timestamp_link }}
-
+{% if companies %}
+## Companies
+{% for company in companies -%}
+- **{{ company.name }}** — {{ company.context }}
 {% endfor %}
+{% endif %}
+
+{% if wildcard %}
+## Wildcard
+{{ wildcard }}
+{% endif %}
 
 ## Original content
 [View original]({{ link }})

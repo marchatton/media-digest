@@ -82,11 +82,18 @@ class Config:
 
     @property
     def asr_model(self) -> str:
-        return self._config_data.get("processing", {}).get("asr", {}).get("model", "medium")
+        return self._config_data.get("processing", {}).get("asr", {}).get("model", "small")
 
     @property
     def asr_compute_type(self) -> str:
         return self._config_data.get("processing", {}).get("asr", {}).get("compute_type", "int8")
+
+    @property
+    def yt_dlp_binary(self) -> Path | None:
+        path = self._config_data.get("processing", {}).get("audio", {}).get("yt_dlp_binary")
+        if not path:
+            return None
+        return Path(path)
 
     @property
     def max_tags_per_doc(self) -> int:

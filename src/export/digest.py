@@ -11,10 +11,9 @@ logger = get_logger(__name__)
 
 def generate_daily_digest(
     date: datetime,
-    items: list[dict],
+    podcasts: list[dict],
+    newsletters: list[dict],
     failures: list[dict],
-    themes: list[str],
-    actionables: list[str],
 ) -> str:
     """Generate daily digest.
 
@@ -32,10 +31,9 @@ def generate_daily_digest(
 
     context = {
         "date": date.strftime("%Y-%m-%d"),
-        "items": items,
+        "podcasts": podcasts,
+        "newsletters": newsletters,
         "failures": failures,
-        "themes": themes,
-        "actionables": actionables,
     }
 
     return renderer.render("daily.md.j2", context)
@@ -44,7 +42,8 @@ def generate_daily_digest(
 def generate_weekly_digest(
     week_start: datetime,
     week_end: datetime,
-    items: list[dict],
+    podcasts: list[dict],
+    newsletters: list[dict],
     failures: list[dict],
 ) -> str:
     """Generate weekly digest.
@@ -63,7 +62,8 @@ def generate_weekly_digest(
     context = {
         "week_start": week_start.strftime("%Y-%m-%d"),
         "week_end": week_end.strftime("%Y-%m-%d"),
-        "items": items,
+        "podcasts": podcasts,
+        "newsletters": newsletters,
         "failures": failures,
     }
 

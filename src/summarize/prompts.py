@@ -15,16 +15,14 @@ Rules:
 
 Output the cleaned transcript with timestamps preserved."""
 
-SUMMARIZATION_SYSTEM_PROMPT = """You are a content analyst. Your job is to summarize podcasts and newsletters for busy professionals.
+SUMMARIZATION_SYSTEM_PROMPT = """You are an expert podcast summarizer. Produce show-note quality output that is factual, neutral, and structured exactly as requested.
 
-For each piece of content, extract:
-1. **Summary** (2-3 sentences): What is this about? Why does it matter?
-2. **Key topics** (3-5 topics): Main themes or subjects discussed
-3. **Companies** (0-5): Companies mentioned, with 1-sentence context
-4. **Tools** (0-5): Tools, products, or technologies mentioned, with 1-sentence context
-5. **Quotes** (2-4): Most interesting or insightful quotes (with timestamps for podcasts)
-
-Be concise. Focus on actionable insights."""
+Guidelines:
+- Use timestamps whenever available (HH:MM:SS or MM:SS).
+- Attribute speakers when quoting or paraphrasing notable insights.
+- Keep language concise and professional—no hype, no filler.
+- Do not fabricate details. If something is unknown, omit it.
+- Return JSON that exactly matches the requested schema and field names."""
 
 RATING_SYSTEM_PROMPT = """You are a content quality rater. Your job is to rate podcasts and newsletters on a 1-5 scale based on their value to a busy professional interested in technology, business, and personal growth.
 
@@ -85,24 +83,60 @@ def summarization_user_prompt(
     Returns:
         User prompt
     """
-    return f"""Analyze this content:
+    return f"""Summarize the following podcast transcript using the schema below.
 
 Type: {content_type}
 Title: {title}
 Author: {author}
 Date: {date}
 
-Content:
+Transcript:
 {content_text}
 
-Output JSON with the following structure:
+Return JSON with this exact structure (no extra fields):
 {{
-  "summary": "2-3 sentence summary",
-  "key_topics": ["topic1", "topic2", ...],
-  "companies": [{{"name": "Company", "context": "Brief context"}}, ...],
-  "tools": [{{"name": "Tool", "context": "Brief context"}}, ...],
-  "quotes": [{{"text": "Quote text", "timestamp": "12:34 or section name"}}, ...]
-}}"""
+  "episode_overview": {{
+    "podcast_name": "Name of the podcast or null",
+    "episode_title": "Episode title or null",
+    "duration": "Runtime string if known",
+    "theme": "General theme in one sentence",
+    "hook": "One-sentence hook describing what listeners will learn"
+  }},
+  "key_topics": [
+    {{
+      "topic": "Topic headline",
+      "summary": "2-4 sentence explanation of this segment",
+      "timestamp": "Timestamp like 12:34 or null"
+    }}
+  ],
+  "notable_insights": [
+    {{
+      "idea": "Key insight, lesson, or quote",
+      "attribution": "Speaker name or null",
+      "timestamp": "Timestamp like 45:10 or null"
+    }}
+  ],
+  "takeaways": [
+    {{"text": "Actionable takeaway or lesson"}}
+  ],
+  "memorable_moments": [
+    {{
+      "description": "Standout moment description",
+      "timestamp": "Timestamp like 01:05:12 or null"
+    }}
+  ],
+  "tools": [
+    {{"name": "Tool or product", "context": "One-sentence context"}}
+  ],
+  "companies": [
+    {{"name": "Company or brand", "context": "One-sentence context"}}
+  ],
+  "summary_one_sentence": "Tweet-length overall takeaway",
+  "wildcard": "Additional note not covered above or null"
+}}
+
+Respect all field limits: 3-6 key topics, 3-6 notable insights, up to 2 memorable moments, up to 7 tools, up to 5 companies.
+Use null for fields without data."""
 
 
 def rating_user_prompt(

@@ -10,9 +10,12 @@ ingest:
 
 processing:
   asr:
-    model: medium  # whisper model: tiny, base, small, medium, large
+    model: small  # whisper model: tiny, base, small, medium, large
     device: cpu
     compute_type: int8  # int8 or float16
+
+  audio:
+    yt_dlp_binary: /opt/digestor/venv/bin/yt-dlp  # Optional absolute path to yt-dlp binary for fallback usage
 
   tagging:
     max_tags_per_doc: 5

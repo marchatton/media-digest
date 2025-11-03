@@ -1,34 +1,30 @@
 # Daily Digest - {{ date }}
 
-## Processed Items ({{ items|length }})
+## Processed
 
-{% for item in items -%}
-### {{ item.title }}
-- **Type:** {{ item.type }}
-- **Rating:** {{ item.rating_llm }}/5
-- **Summary:** {{ item.summary }}
-- [View note]({{ item.note_link }})
-
+### Podcasts ({{ podcasts|length }})
+{% if podcasts -%}
+{% for podcast in podcasts -%}
+- **{{ podcast.title }}** ({{ podcast.rating_llm }}/5) — {{ podcast.description }}
+  - [View note]({{ podcast.note_link }})
 {% endfor %}
+{% else -%}
+- _No podcasts processed._
+{% endif %}
+
+### Newsletters ({{ newsletters|length }})
+{% if newsletters -%}
+{% for newsletter in newsletters -%}
+- **{{ newsletter.title }}** — {{ newsletter.description }}
+  - [Open in Gmail]({{ newsletter.source_link }})
+{% endfor %}
+{% else -%}
+- _No newsletters processed._
+{% endif %}
 
 {% if failures -%}
 ## ⚠️ Failures ({{ failures|length }})
-
 {% for failure in failures -%}
-- **{{ failure.title }}** ({{ failure.type }})
-  - Error: {{ failure.error_reason }}
-
+- **{{ failure.title }}** ({{ failure.type }}) — {{ failure.error_reason }}
 {% endfor %}
 {% endif %}
-
-## Top Themes
-
-{% for theme in themes -%}
-- {{ theme }}
-{% endfor %}
-
-## Actionables
-
-{% for action in actionables -%}
-- {{ action }}
-{% endfor %}

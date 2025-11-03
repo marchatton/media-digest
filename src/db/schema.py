@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 CREATE_EPISODES_TABLE = """
 CREATE TABLE IF NOT EXISTS episodes (
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     quotes TEXT,
     raw_rating INTEGER,
     final_rating INTEGER,
+    structured_summary TEXT,
     created_at TIMESTAMP DEFAULT (now())
 )
 """
@@ -113,6 +114,10 @@ def apply_migrations(conn, current_version: int) -> None:
 
     if current_version < 2:
         migrate_transcripts_table(conn)
+        current_version = 2
+
+    if current_version < 3:
+        migrate_summaries_table(conn)
 
 
 def migrate_transcripts_table(conn) -> None:
@@ -147,3 +152,20 @@ def migrate_transcripts_table(conn) -> None:
 
     conn.execute("DROP TABLE transcripts")
     conn.execute("ALTER TABLE transcripts__tmp RENAME TO transcripts")
+
+
+def migrate_summaries_table(conn) -> None:
+    """Add structured summary column for richer podcast notes."""
+
+    existing = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE lower(table_name) = 'summaries' AND lower(column_name) = 'structured_summary'
+        """
+    ).fetchone()[0]
+
+    if existing:
+        return
+
+    conn.execute("ALTER TABLE summaries ADD COLUMN structured_summary TEXT")

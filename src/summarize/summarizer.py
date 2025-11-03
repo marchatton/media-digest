@@ -51,18 +51,21 @@ def summarize_content(
     date: str,
     content_text: str,
 ) -> SummaryResponse:
-    """Summarize content using LLM.
+    """Summarize podcast content using the LLM prompt.
 
     Args:
-        content_type: "podcast" or "newsletter"
+        content_type: Expect "podcast"
         title: Content title
         author: Author/host name
         date: Publication date
         content_text: Cleaned content text
 
     Returns:
-        Summary response
+        Structured summary response
     """
+    if content_type != "podcast":
+        raise ValueError("summarize_content currently supports podcasts only")
+
     logger.info(f"Summarizing {content_type}: {title}")
 
     client = get_client()
@@ -86,9 +89,12 @@ def summarize_content(
     summary = SummaryResponse(**response_json)
 
     logger.info(
-        f"Summarized {content_type}: {len(summary.key_topics)} topics, "
-        f"{len(summary.companies)} companies, {len(summary.tools)} tools, "
-        f"{len(summary.quotes)} quotes"
+        "Summarized %s: %d topics, %d insights, %d tools, %d companies",
+        content_type,
+        len(summary.key_topics),
+        len(summary.notable_insights),
+        len(summary.tools),
+        len(summary.companies),
     )
 
     return summary

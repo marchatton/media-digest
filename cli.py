@@ -292,6 +292,10 @@ def cmd_summarize(args):
                 logger.warning(f"Empty content for {item_id}, skipping")
                 continue
 
+            if item_type != "podcast":
+                logger.info("Skipping summarization for %s: %s", item_type, title)
+                continue
+
             summary_resp = summarize_content(
                 content_type=item_type,
                 title=title,
@@ -303,8 +307,8 @@ def cmd_summarize(args):
             rating_resp = rate_content(
                 content_type=item_type,
                 title=title,
-                summary=summary_resp.summary,
-                key_topics=summary_resp.key_topics,
+                summary=summary_resp.summary_one_sentence,
+                key_topics=[topic.topic for topic in summary_resp.key_topics],
             )
 
             import json as _json
@@ -312,13 +316,14 @@ def cmd_summarize(args):
                 conn,
                 item_id=item_id,
                 item_type=item_type,
-                summary=summary_resp.summary,
-                key_topics=_json.dumps(summary_resp.key_topics),
+                summary=summary_resp.summary_one_sentence,
+                key_topics=_json.dumps([topic.dict() for topic in summary_resp.key_topics]),
                 companies=_json.dumps([c.dict() for c in summary_resp.companies]),
                 tools=_json.dumps([t.dict() for t in summary_resp.tools]),
-                quotes=_json.dumps([q.dict() for q in summary_resp.quotes]),
+                quotes=_json.dumps([insight.dict() for insight in summary_resp.notable_insights]),
                 raw_rating=rating_resp.rating,
                 final_rating=rating_resp.rating,
+                structured_summary=_json.dumps(summary_resp.model_dump()),
             )
 
             logger.info(f"Saved summary for {item_type} {item_id}")
@@ -341,7 +346,7 @@ def cmd_export(args):
         """
         SELECT e.guid, e.title, e.publish_date, coalesce(e.author,'') AS author,
                coalesce(e.video_url, e.audio_url, '') AS link,
-               s.summary, s.key_topics, s.companies, s.tools, s.quotes, s.final_rating
+               s.summary, s.key_topics, s.companies, s.tools, s.quotes, s.final_rating, s.structured_summary
         FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
         """
     ).fetchall()
@@ -353,7 +358,12 @@ def cmd_export(args):
         key_topics = _json.loads(rec["key_topics"]) if rec["key_topics"] else []
         companies = _json.loads(rec["companies"]) if rec["companies"] else []
         tools = _json.loads(rec["tools"]) if rec["tools"] else []
-        quotes = _json.loads(rec["quotes"]) if rec["quotes"] else []
+        insights = _json.loads(rec["quotes"]) if rec["quotes"] else []
+        structured = _json.loads(rec.get("structured_summary") or "{}")
+        overview = structured.get("episode_overview")
+        takeaways = structured.get("takeaways") or []
+        memorable_moments = structured.get("memorable_moments") or []
+        wildcard = structured.get("wildcard")
 
         note_context = NoteContext(
             title=rec["title"],
@@ -366,7 +376,11 @@ def cmd_export(args):
             key_topics=key_topics,
             companies=companies,
             tools=tools,
-            quotes=quotes,
+            insights=insights,
+            takeaways=takeaways,
+            memorable_moments=memorable_moments,
+            overview=overview,
+            wildcard=wildcard,
             guests=[],
         )
 
@@ -385,49 +399,7 @@ def cmd_export(args):
         write_note(note_path, note, check_edit=True)
 
     # Export newsletters with summaries
-    newsletters = conn.execute(
-        """
-        SELECT n.message_id, n.subject, n.date, n.sender, coalesce(n.link,'') AS link,
-               s.summary, s.key_topics, s.companies, s.tools, s.quotes, s.final_rating
-        FROM newsletters n JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
-        """
-    ).fetchall()
-    cols = [d[0] for d in conn.description]
-    for row in newsletters:
-        rec = dict(zip(cols, row))
-        import json as _json
-
-        key_topics = _json.loads(rec["key_topics"]) if rec["key_topics"] else []
-        companies = _json.loads(rec["companies"]) if rec["companies"] else []
-        tools = _json.loads(rec["tools"]) if rec["tools"] else []
-        quotes = _json.loads(rec["quotes"]) if rec["quotes"] else []
-
-        note_context = NoteContext(
-            title=rec["subject"],
-            date=rec["date"],
-            authors=[rec["sender"]] if rec["sender"] else [],
-            link=rec["link"],
-            version=rec["message_id"],
-            rating_llm=rec["final_rating"] or 0,
-            summary=rec["summary"],
-            key_topics=key_topics,
-            companies=companies,
-            tools=tools,
-            quotes=quotes,
-        )
-
-        note = render_note(
-            note_context,
-            template_name="newsletter.md.j2",
-            note_type="newsletter",
-        )
-        rel_note_path = _newsletter_relative_path(
-            rec.get("date"),
-            rec.get("sender"),
-            rec.get("subject", ""),
-        )
-        note_path = output_root / rel_note_path
-        write_note(note_path, note, check_edit=True)
+    # Newsletter notes are currently skipped (no LLM summaries generated)
 
     # Commit and push unless dry-run
     if getattr(args, "dry_run", False):
@@ -446,8 +418,15 @@ def cmd_build_daily(args):
 
     conn = get_connection()
 
-    # Items processed (summarized) on target_date
-    items: list[dict] = []
+    def _newsletter_preview(text: str | None) -> str:
+        snippet = (text or "").strip()
+        snippet = " ".join(snippet.split())
+        if not snippet:
+            return "Preview unavailable."
+        return snippet[:200] + ("…" if len(snippet) > 200 else "")
+
+    podcasts: list[dict] = []
+    newsletters: list[dict] = []
 
     output_root = config.output_repo_path / config.export_output_path
     _ensure_export_dirs(output_root)
@@ -468,34 +447,28 @@ def cmd_build_daily(args):
     for title, publish_date, author, rating, summary in ep_rows:
         rel_note_path = _podcast_relative_path(publish_date, author, title)
         link = _relative_link(daily_full_path.parent, output_root / rel_note_path)
-        items.append({
+        podcasts.append({
             "title": title,
-            "type": "podcast",
             "rating_llm": rating or 0,
-            "summary": summary,
+            "description": summary,
             "note_link": link,
         })
 
-    # Newsletters
+    # Newsletters processed on target date
     nl_rows = conn.execute(
         """
-        SELECT n.subject, n.date, coalesce(n.sender, '') AS sender, s.final_rating, s.summary
-        FROM newsletters n
-        JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
-        WHERE CAST(s.created_at AS DATE) = ?
-        ORDER BY s.created_at DESC
+        SELECT subject, coalesce(link, '') AS link, body_text
+        FROM newsletters
+        WHERE status = 'completed' AND CAST(updated_at AS DATE) = ?
+        ORDER BY updated_at DESC
         """,
         (str(target_date),),
     ).fetchall()
-    for subject, date_str, sender, rating, summary in nl_rows:
-        rel_note_path = _newsletter_relative_path(date_str, sender, subject)
-        link = _relative_link(daily_full_path.parent, output_root / rel_note_path)
-        items.append({
+    for subject, link, body_text in nl_rows:
+        newsletters.append({
             "title": subject,
-            "type": "newsletter",
-            "rating_llm": rating or 0,
-            "summary": summary,
-            "note_link": link,
+            "description": _newsletter_preview(body_text),
+            "source_link": link or "#",
         })
 
     # Failures that occurred on target_date
@@ -517,10 +490,9 @@ def cmd_build_daily(args):
 
     content = generate_daily_digest(
         date=target_date,
-        items=items,
+        podcasts=podcasts,
+        newsletters=newsletters,
         failures=failures,
-        themes=[],
-        actionables=[],
     )
 
     write_digest(daily_full_path, content)
@@ -537,52 +509,57 @@ def cmd_build_weekly(args):
 
     conn = get_connection()
 
-    items: list[dict] = []
-
-    # Collect items for the week, sorted by rating desc then recency
-    rows = conn.execute(
-        """
-        SELECT 'podcast' AS type,
-               e.title AS title,
-               e.publish_date AS date,
-               coalesce(e.author, '') AS author,
-               s.final_rating AS rating,
-               s.summary
-        FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
-        WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
-        UNION ALL
-        SELECT 'newsletter' AS type,
-               n.subject AS title,
-               n.date AS date,
-               coalesce(n.sender, '') AS author,
-               s.final_rating AS rating,
-               s.summary
-        FROM newsletters n JOIN summaries s ON s.item_id = n.message_id AND s.item_type = 'newsletter'
-        WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
-        ORDER BY rating DESC NULLS LAST, date DESC
-        """,
-        (str(week_start), str(week_end), str(week_start), str(week_end)),
-    ).fetchall()
-
     output_root = config.output_repo_path / config.export_output_path
     _ensure_export_dirs(output_root)
     weekly_rel_path = _weekly_digest_relative_path(week_end)
     weekly_full_path = output_root / weekly_rel_path
 
-    for type_name, title, date_str, author, rating, summary in rows:
-        if type_name == "podcast":
-            rel_note_path = _podcast_relative_path(date_str, author, title)
-        else:
-            rel_note_path = _newsletter_relative_path(date_str, author, title)
-        link = _relative_link(weekly_full_path.parent, output_root / rel_note_path)
+    podcasts: list[dict] = []
+    newsletters: list[dict] = []
 
-        # Simple placeholder takeaways: one item from summary
-        takeaways = [{"text": summary, "reference": ""}]
-        items.append({
+    podcast_rows = conn.execute(
+        """
+        SELECT e.title, e.publish_date, coalesce(e.author, '') AS author,
+               s.final_rating, s.summary
+        FROM episodes e JOIN summaries s ON s.item_id = e.guid AND s.item_type = 'podcast'
+        WHERE CAST(s.created_at AS DATE) BETWEEN ? AND ?
+        ORDER BY s.final_rating DESC NULLS LAST, s.created_at DESC
+        """,
+        (str(week_start), str(week_end)),
+    ).fetchall()
+
+    for title, date_str, author, rating, summary in podcast_rows:
+        rel_note_path = _podcast_relative_path(date_str, author, title)
+        link = _relative_link(weekly_full_path.parent, output_root / rel_note_path)
+        podcasts.append({
             "title": title,
             "rating_llm": rating or 0,
-            "takeaways": takeaways,
+            "description": summary,
             "note_link": link,
+        })
+
+    newsletter_rows = conn.execute(
+        """
+        SELECT subject, coalesce(link, '') AS link, body_text
+        FROM newsletters
+        WHERE status = 'completed' AND CAST(updated_at AS DATE) BETWEEN ? AND ?
+        ORDER BY updated_at DESC
+        """,
+        (str(week_start), str(week_end)),
+    ).fetchall()
+
+    def _newsletter_preview(text: str | None) -> str:
+        snippet = (text or "").strip()
+        snippet = " ".join(snippet.split())
+        if not snippet:
+            return "Preview unavailable."
+        return snippet[:200] + ("…" if len(snippet) > 200 else "")
+
+    for subject, link, body_text in newsletter_rows:
+        newsletters.append({
+            "title": subject,
+            "description": _newsletter_preview(body_text),
+            "source_link": link or "#",
         })
 
     failures: list[dict] = []
@@ -604,7 +581,8 @@ def cmd_build_weekly(args):
     content = generate_weekly_digest(
         week_start=week_start,
         week_end=week_end,
-        items=items,
+        podcasts=podcasts,
+        newsletters=newsletters,
         failures=failures,
     )
 

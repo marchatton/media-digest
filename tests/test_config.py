@@ -10,7 +10,7 @@ def test_config_loads_defaults():
 
     assert config.timezone == "UTC"
     assert config.start_date == "2025-10-01"
-    assert config.asr_model == "medium"
+    assert config.asr_model == "small"
     assert config.llm_default_model == "claude-sonnet-4-5-20250929"
 
 

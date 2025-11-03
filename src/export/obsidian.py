@@ -2,7 +2,7 @@
 
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -58,10 +58,14 @@ class NoteContext:
     version: str
     rating_llm: int
     summary: str
-    key_topics: list[str]
+    key_topics: list[dict]
     companies: list[dict]
     tools: list[dict]
-    quotes: list[dict]
+    insights: list[dict]
+    takeaways: list[dict] = field(default_factory=list)
+    memorable_moments: list[dict] = field(default_factory=list)
+    overview: dict | None = None
+    wildcard: str | None = None
     guests: list[str] | None = None
 
 
@@ -77,6 +81,11 @@ def _payload_from_context(context: NoteContext) -> dict[str, Any]:
         "key_topics": list(context.key_topics),
         "companies": list(context.companies),
         "tools": list(context.tools),
+        "insights": list(context.insights),
+        "takeaways": list(context.takeaways),
+        "memorable_moments": list(context.memorable_moments),
+        "overview": dict(context.overview) if context.overview else None,
+        "wildcard": context.wildcard,
     }
 
 
@@ -86,28 +95,28 @@ def _render_note(
     note_type: str,
     link: str,
     payload: dict[str, Any],
-    quotes: list[dict],
+    insights: list[dict],
     extra_context: dict[str, Any] | None = None,
-    transform_quotes: bool = False,
+    transform_insights: bool = False,
 ) -> str:
     """Render a note template with shared structure."""
     renderer = get_renderer()
 
-    formatted_quotes: list[dict] = []
-    if transform_quotes:
-        for quote in quotes:
-            timestamp = quote.get("timestamp", "")
-            text = quote.get("text", "")
+    formatted_insights: list[dict] = []
+    if transform_insights:
+        for insight in insights:
+            timestamp = insight.get("timestamp", "")
+            idea = insight.get("idea", "")
             timestamp_link = format_timestamp_link(link, timestamp)
-            formatted_quotes.append({"text": text, "timestamp_link": timestamp_link})
+            formatted_insights.append({**insight, "timestamp_link": timestamp_link, "idea": idea})
     else:
-        formatted_quotes = [dict(q) for q in quotes]
+        formatted_insights = [dict(i) for i in insights]
 
     context: dict[str, Any] = {
         **payload,
         "link": link,
         "type": note_type,
-        "quotes": formatted_quotes,
+        "insights": formatted_insights,
     }
 
     if extra_context:
@@ -135,9 +144,9 @@ def render_note(
         note_type=note_type,
         link=context.link,
         payload=payload,
-        quotes=context.quotes,
+        insights=context.insights,
         extra_context=extra_context,
-        transform_quotes=transform_quotes,
+        transform_insights=transform_quotes,
     )
 
 

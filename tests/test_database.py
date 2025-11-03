@@ -207,6 +207,7 @@ def test_get_items_needing_summary(temp_db):
         quotes="[]",
         raw_rating=4,
         final_rating=4,
+        structured_summary='{"summary_one_sentence": "Summary 1"}',
     )
 
     # Get items needing summary
@@ -215,4 +216,3 @@ def test_get_items_needing_summary(temp_db):
     assert len(items) == 1
     assert items[0]["id"] == "ep-2"
     assert items[0]["item_type"] == "podcast"
-

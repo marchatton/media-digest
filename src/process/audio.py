@@ -34,30 +34,69 @@ def download_audio(url: str, output_dir: Path, episode_guid: str) -> Path:
 
     logger.info(f"Downloading audio: {url}")
 
+    base_args = [
+        "-x",
+        "--audio-format",
+        "mp3",
+        "--audio-quality",
+        "0",
+        "-o",
+        output_template,
+        "--no-playlist",
+        "--quiet",
+        "--progress",
+        url,
+    ]
+
     try:
-        # Run yt-dlp
-        command = [
-            sys.executable,
-            "-m",
-            "yt_dlp",
-            "-x",  # Extract audio
-            "--audio-format",
-            "mp3",
-            "--audio-quality",
-            "0",  # Best quality
-            "-o",
-            output_template,
-            "--no-playlist",
-            "--quiet",
-            "--progress",
-            url,
-        ]
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        try:
+            # Prefer running via the python module so we respect the active interpreter
+            command = [sys.executable, "-m", "yt_dlp", *base_args]
+            subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr or ""
+
+            if "No module named" in stderr or "ModuleNotFoundError" in stderr:
+                logger.warning("yt-dlp Python module missing; attempting fallback binary")
+
+                fallback_candidates: list[str] = []
+                if config.yt_dlp_binary:
+                    fallback_candidates.append(str(config.yt_dlp_binary))
+                fallback_candidates.append("yt-dlp")
+
+                last_missing: FileNotFoundError | None = None
+
+                for candidate in fallback_candidates:
+                    fallback_command = [candidate, *base_args]
+                    try:
+                        subprocess.run(
+                            fallback_command,
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                        )
+                        break
+                    except FileNotFoundError as missing:
+                        last_missing = missing
+                        logger.warning(f"yt-dlp binary not found: {candidate}")
+                    except subprocess.CalledProcessError as fallback_error:
+                        logger.error(f"yt-dlp fallback failed: {fallback_error.stderr}")
+                        raise Exception(f"Failed to download audio: {fallback_error.stderr}") from fallback_error
+                else:
+                    hint = "yt-dlp binary not found"
+                    if config.yt_dlp_binary:
+                        hint += f" (tried {config.yt_dlp_binary} and system PATH)"
+                    logger.error(hint)
+                    raise Exception(f"Failed to download audio: {hint}") from last_missing
+            else:
+                logger.error(f"yt-dlp failed: {stderr}")
+                raise Exception(f"Failed to download audio: {stderr}") from e
 
         # Find the downloaded file
         audio_file = output_dir / f"{safe_guid}.mp3"
@@ -73,9 +112,6 @@ def download_audio(url: str, output_dir: Path, episode_guid: str) -> Path:
         logger.info(f"Downloaded audio to: {audio_file}")
         return audio_file
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"yt-dlp failed: {e.stderr}")
-        raise Exception(f"Failed to download audio: {e.stderr}")
     except Exception as e:
         logger.error(f"Audio download failed: {e}")
         raise
