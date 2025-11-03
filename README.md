@@ -118,7 +118,7 @@ rating_llm: 4              # LLM's rating
 ## Documentation
 
 - **[PRD](tasks/0001-prd-media-digest.md)** - Full product requirements (1,100+ lines)
-- **[claude.md](claude.md)** - Development guidelines for Claude Code
+- **[claude.md](docs/guides/claude.md)** - Development guidelines for Claude Code
 - **[Brainstorming Spec](docs/brainstorming-spec.md)** - Original design decisions
 
 ## Setup (High-Level)

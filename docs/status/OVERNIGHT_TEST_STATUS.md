@@ -31,7 +31,7 @@ tail -50 logs/process.log
 
 ```bash
 # This will run: process → summarize → export
-./run_full_test.sh
+./scripts/run_full_test.sh
 ```
 
 ### Or run steps manually:
@@ -129,7 +129,7 @@ python3.11 cli.py discover --since 2025-10-01
 
 ## Files Created
 
-- `run_full_test.sh` - Script to run full pipeline automatically
+- `scripts/run_full_test.sh` - Script to run full pipeline automatically
 - `logs/process.log` - Log file for the background process
 - `digestor.duckdb` - DuckDB database with 22 discovered episodes
 - `data/podcasts.opml` - OPML with TED Talks and NPR Up First
