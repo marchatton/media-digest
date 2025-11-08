@@ -9,6 +9,7 @@ from typing import Callable
 
 from src.config import config
 from src.logging_config import get_logger
+from src.utils.issues import record_llm_credit_exhaustion
 
 logger = get_logger(__name__)
 
@@ -34,6 +35,26 @@ class ClaudeClient:
                 return fn()
             except Exception as e:
                 if attempt == max_retries:
+                    # Detect likely credit/billing exhaustion and record for daily digest
+                    msg = str(e).lower()
+                    if any(
+                        token in msg
+                        for token in (
+                            "payment required",
+                            "402",
+                            "insufficient",
+                            "credit",
+                            "quota",
+                            "billing",
+                            "balance",
+                        )
+                    ):
+                        try:
+                            record_llm_credit_exhaustion(str(e))
+                            logger.warning("Recorded Anthropic credit/billing issue for digest: %s", e)
+                        except Exception as rec_exc:  # pragma: no cover - defensive logging
+                            logger.warning("Failed to record LLM credit issue: %s", rec_exc)
+
                     logger.error(f"LLM call failed after {max_retries} retries: {e}")
                     raise
                 wait = backoff_base * (2**attempt)
