@@ -23,12 +23,12 @@ processing:
 
 llm:
   provider: anthropic
-  default_model: claude-haiku-4-5-20250929
+  default_model: claude-sonnet-4-5-20250929
   models:
-    cleaning: claude-haiku-4-5-20250929
-    summarization: claude-haiku-4-5-20250929
-    rating: claude-haiku-4-5-20250929
-    tagging: claude-haiku-4-5-20250929  # Task 8.0
+    cleaning: claude-sonnet-4-5-20250929
+    summarization: claude-sonnet-4-5-20250929
+    rating: claude-sonnet-4-5-20250929
+    tagging: claude-sonnet-4-5-20250929  # Task 8.0
 
 export:
   output_path: .

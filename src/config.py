@@ -110,7 +110,7 @@ class Config:
         yt_dlp_binary = _optional_path(audio_cfg.get("yt_dlp_binary"))
         max_tags_per_doc = int(tagging_cfg.get("max_tags_per_doc", 5))
 
-        llm_default_model = str(llm_cfg.get("default_model", "claude-haiku-4-5-20250929"))
+        llm_default_model = str(llm_cfg.get("default_model", "claude-sonnet-4-5-20250929"))
         models_cfg = llm_cfg.get("models", {}) if isinstance(llm_cfg, dict) else {}
         llm_cleaning_model = str(models_cfg.get("cleaning", llm_default_model))
         llm_summarization_model = str(models_cfg.get("summarization", llm_default_model))
