@@ -38,6 +38,37 @@ action QuickAdd: Macro: Move summary to read
 - On desktop/mobile this renders a button. Tapping it executes the macro, moving the `.md` and its `.mp3` to your `read` folder.
 - Buttons caches the command label, so if you later rename the macro just update the `action` line.
 
+## Variant – Templater Script Instead of QuickAdd
+If you already use Templater for automation, you can skip QuickAdd and wire the button directly to a Templater script. Create `scripts/move-summary.js` inside your vault’s Templater folder with:
+
+```javascript
+module.exports = async (tp) => {
+  const file = tp.file.find_tfile(tp.file.path(true));
+  const destination = 'summaries/read/';
+  await app.fileManager.renameFile(file, destination + file.name);
+
+  const audioEmbed = tp.file.content.match(/!\[\[(.*\.mp3)\]\]/);
+  if (audioEmbed?.[1]) {
+    const audioFile = app.metadataCache.getFirstLinkpathDest(audioEmbed[1], file.path);
+    if (audioFile) {
+      await app.fileManager.renameFile(audioFile, destination + audioFile.name);
+    }
+  }
+};
+```
+
+Then change the button block to:
+
+````markdown
+```button
+name ✅ Mark as Read
+type templater
+action move-summary
+```
+````
+
+This gives you full control (rename, add metadata updates, etc.) at the cost of managing a short script.
+
 ## Optional – Hotkey or Command Palette
 - Assign a hotkey to `QuickAdd: Macro: Move summary to read` (Settings → Hotkeys) for keyboard-first use.
 - Add the macro to the ribbon (QuickAdd setting **Show in ribbon**) for a permanent clickable icon if you dislike inline buttons.

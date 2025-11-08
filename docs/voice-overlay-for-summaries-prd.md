@@ -59,7 +59,14 @@ Create an automated "voice overlay" so every generated summary (daily digest + p
 - User reports zero manual steps needed to produce audio (only to mark notes as read).
 - Vault size growth remains <1.5 GB per quarter attributable to audio (validated via periodic checks or automated reports).
 
-## 9. Open Questions
+## 9. Cost & Provider Overview
+- **ElevenLabs / premium voices:** ~$25/mo at 180 minutes of audio (Starter plan + overage). Provides the most natural speech but requires storing an API key and budgeting for usage spikes.
+- **AWS Polly / Azure Speech:** ~$0.40–$1.50/mo for the same volume when using neural voices; excellent fallback if Piper quality is insufficient and you still want low spend.
+- **Piper (self-hosted):** Free/open-source CPU inference. Models are 50–150 MB and render summaries in seconds on a Hetzner CX VM. Quality is conversational but less expressive than premium services.
+- **Storage impact:** 1–1.5 MB per summary at 56 kbps mono → ~120 MB/month if you process four summaries per day. Easily fits within Obsidian Sync’s 10 GB quota if you prune older audio quarterly.
+- **Operational choice:** Default to Piper for zero cost; keep config hooks ready so switching to a cloud provider is a simple env change rather than a code rewrite.
+
+## 10. Open Questions
 1. Which Obsidian automation method is preferred for the "move current note + mp3" command (Templater, QuickAdd, or custom plugin)?
 2. Should old audio files be auto-pruned after a retention window, or is manual cleanup acceptable?
 3. Do we need multilingual support immediately, or is English-only sufficient for the first release?
