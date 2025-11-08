@@ -72,3 +72,17 @@ Create an automated "voice overlay" so every generated summary (daily digest + p
 3. Do we need multilingual support immediately, or is English-only sufficient for the first release?
 4. Is Piper quality adequate, or should the MVP include a cloud provider fallback from day one?
 5. Should the render step also cover any other content types (newsletters, weekly digests) beyond daily + podcast summaries?
+
+## 11. Rollout Plan
+1. **Server-side MVP (Week 1):**
+   - Wire the Hetzner job to call the audio renderer after daily + podcast exports.
+   - Commit `.gitignore` updates if needed and verify Obsidian Sync propagates `.mp3` files to desktop.
+   - Log metrics (render time, failures) to confirm baseline reliability.
+2. **Vault UX (Week 2):**
+   - Ship the QuickAdd/Buttons (or Templater) “Mark as Read” workflow and template embeds across all summary types.
+   - Dogfood on desktop + mobile for a few days; measure sync latency and folder moves.
+3. **Mobile validation (Week 3):**
+   - Run end-to-end tests entirely from phone (play audio, tap button, confirm files move).
+   - Capture any plugin issues on iOS/Android and document workarounds in the guide.
+4. **Enhancements (optional Week 4):**
+   - Decide whether to enable cloud TTS fallback, retention pruning, or extra content types before announcing the feature “done.”

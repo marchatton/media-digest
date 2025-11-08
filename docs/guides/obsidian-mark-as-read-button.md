@@ -81,4 +81,9 @@ This gives you full control (rename, add metadata updates, etc.) at the cost of 
 | Macro throws “folder not found” | Double-check the destination path in the macro matches your vault structure. |
 | Need more automation | Replace QuickAdd with a custom plugin/Templater script to perform extra logic (rename files, update metadata, etc.). |
 
+## Known Limitations
+- Buttons + QuickAdd cannot detect whether you truly finished listening; you still manually decide when to move the note.
+- Obsidian Mobile occasionally delays plugin loading after app restarts—if the button disappears, toggle **Settings → Community Plugins** off/on to reload.
+- The `File: Move attachment(s)` command only catches attachments referenced in the current note; if your audio lives elsewhere (e.g., nested folder), update the macro or switch to the Templater variant for custom logic.
+
 That’s it—once the Hetzner pipeline drops a new note and audio pair into `summaries/unread/`, Obsidian shows the embedded player plus the **Mark as Read** button so you can listen anywhere and file it away with a single tap.
