@@ -225,9 +225,18 @@ def git_commit_and_push(repo_path: Path, commit_message: str) -> None:
             capture_output=True,
         )
 
-        # Git push
+        # Determine current branch and push to it
+        branch_proc = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        current_branch = branch_proc.stdout.strip() or "main"
+
         subprocess.run(
-            ["git", "push", "origin", "main"],
+            ["git", "push", "origin", current_branch],
             cwd=repo_path,
             check=True,
             capture_output=True,
