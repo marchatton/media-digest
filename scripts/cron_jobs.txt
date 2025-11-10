@@ -9,4 +9,5 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 5 5 * * * /usr/bin/flock -n /opt/digestor/.locks/daily.lock /opt/digestor/scripts/cron_build_daily.sh
 10 6 * * Fri /usr/bin/flock -n /opt/digestor/.locks/weekly.lock /opt/digestor/scripts/cron_build_weekly.sh
 # Move export after digests so new notes are pushed the same day
-20 6 * * * /usr/bin/flock -n /opt/digestor/.locks/export.lock /opt/digestor/scripts/cron_export.sh
+# Do not export on Sundays (run Mon–Sat)
+20 6 * * 1-6 /usr/bin/flock -n /opt/digestor/.locks/export.lock /opt/digestor/scripts/cron_export.sh
