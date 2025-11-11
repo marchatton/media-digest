@@ -1,11 +1,18 @@
-title: {{ title | tojson }}
-date: {{ date | tojson }}
-authors: {{ authors | tojson }}
-guests: {{ (guests or []) | tojson }}
-link: {{ link | tojson }}
-rating: null
+---
+title: {{ title }}
+date: {{ date }}
+author:
+{%- for author in authors %}
+  - {{ author | wikilink }}
+{%- endfor %}
+guests:
+{%- for guest in (guests | default([])) %}
+  - {{ guest | wikilink }}
+{%- endfor %}
+link: {{ link }}
+rating:
 type: podcast
-version: {{ version | tojson }}
+version: {{ version }}
 rating_llm: {{ rating_llm }}
 ---
 

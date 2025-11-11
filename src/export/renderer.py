@@ -9,6 +9,16 @@ from src.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def ensure_wikilink(value: str) -> str:
+    """Return value wrapped as an Obsidian wikilink if not already."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("[[") and text.endswith("]]"):
+        return text
+    return f"[[{text}]]"
+
+
 class TemplateRenderer:
     """Template renderer using Jinja2."""
 
@@ -24,6 +34,7 @@ class TemplateRenderer:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self.env.filters["wikilink"] = ensure_wikilink
 
     def render(self, template_name: str, context: dict) -> str:
         """Render template with context.
